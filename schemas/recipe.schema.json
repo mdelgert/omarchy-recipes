@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/omarchy-recipes/recipe.schema.json",
+  "title": "Normalized Omarchy Recipe Metadata",
+  "type": "object",
+  "required": ["id", "title", "description", "category", "path", "parameters"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "title": {"type": "string", "minLength": 1},
+    "description": {"type": "string", "minLength": 1},
+    "category": {"type": "string", "minLength": 1},
+    "platform": {"type": "array", "items": {"type": "string"}},
+    "distro": {"type": "array", "items": {"type": "string"}},
+    "privilege": {"enum": ["user", "mixed", "root"]},
+    "undo": {"enum": ["restore", "command", "none"]},
+    "risk": {"enum": ["low", "medium", "high"]},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "path": {"type": "string"},
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"},
+          "type": {"enum": ["string", "integer", "boolean", "choice", "path", "secret"]},
+          "required": {"type": "boolean"},
+          "default": {},
+          "label": {"type": "string"},
+          "description": {"type": "string"},
+          "choices": {"type": "array"},
+          "min": {"type": "integer"},
+          "max": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

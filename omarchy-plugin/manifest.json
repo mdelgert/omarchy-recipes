@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mdelgert.omarchy-recipes",
+  "name": "Omarchy Recipes",
+  "version": "0.1.0",
+  "author": "Matthew David Elgert",
+  "license": "MIT",
+  "description": "Browse and run self-describing, reversible workstation recipes.",
+  "kinds": ["menu"],
+  "entryPoints": {
+    "menu": "Menu.qml"
+  }
+}
