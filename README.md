@@ -342,6 +342,18 @@ docs/milestones/                  milestone specs (MILESTONE-N-SPEC.md) and repo
 7. **AI-authorable, human-auditable** — the skill defines safe conventions.
 8. **Portable collections** — recipes should eventually be shareable as Git repositories.
 
+## Working with coding agents
+
+If you're assigning work to Claude Code, Copilot CLI, Codex, or similar:
+
+1. Write or pick a task in [`docs/tasks/`](docs/tasks/) (see
+   [`docs/tasks/README.md`](docs/tasks/README.md)).
+2. Hand it to the agent using [`docs/AGENT_START_PROMPT.md`](docs/AGENT_START_PROMPT.md).
+3. Follow the branch/review loop in [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md) —
+   plan on `dev`, implement each task on its own `task/<slug>` branch, review
+   against the task's acceptance criteria yourself (there's no separate
+   reviewer agent), then merge.
+
 ## Development
 
 ```bash
