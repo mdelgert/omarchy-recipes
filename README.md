@@ -137,34 +137,52 @@ opens a detail view generated from the recipe's own metadata: current state from
 reversal, a confirmed Apply, the run's output, its history, and Undo when the
 engine says one is available. Adding a recipe never requires a UI change.
 
-### Enable it
+### Install it
 
 ```bash
+omarchy plugin add https://github.com/mdelgert/omarchy-recipes.git --enable
+```
+
+That clones the repository straight into `~/.config/omarchy/plugins/`, validates
+the manifest, and offers to enable it. When it asks which bar section, pick one
+— that is where the recipe icon lands.
+
+The repository *is* the plugin: `manifest.json` sits at its root and points at
+`omarchy-plugin/`, so there is nothing to build and no separate download.
+
+Update it later with:
+
+```bash
+omarchy plugin update io.github.mdelgert.omarchy-recipes
+omarchy-restart-shell     # only needed when the plugin's QML changed
+```
+
+### Install it from a working copy
+
+When you are changing the code, install the working tree instead — uncommitted
+changes and all:
+
+```bash
+git clone https://github.com/mdelgert/omarchy-recipes.git
+cd omarchy-recipes
 ./omarchy-plugin/install.sh                                # or: make plugin
 omarchy plugin enable io.github.mdelgert.omarchy-recipes right
 ```
 
-1. **`install.sh`** copies `omarchy-plugin/` plus `bin/`, `src/`, `lib/`, and
-   `recipes/` into `~/.config/omarchy/plugins/io.github.mdelgert.omarchy-recipes/`,
-   validates the manifest and the recipes, and reloads the shell. The copy is
-   self-contained, so the plugin finds its runner without anything on `PATH`.
-   A copy rather than a symlink because Omarchy refuses a plugin folder
-   containing one.
-2. **`omarchy plugin enable`** is required — a freshly installed third-party
-   plugin lists as `disabled` until you enable it. The trailing `right` places
-   the bar icon in the right-hand section (`left`, `center`, and `right` all
-   work).
+`install.sh` mirrors the repository into the plugin directory, so an install
+from git and an install from a working copy are the same layout. The trailing
+`right` places the bar icon (`left`, `center`, and `right` all work).
 
-Confirm it loaded:
+Confirm either way:
 
 ```bash
 omarchy plugin list | grep omarchy-recipes
 # io.github.mdelgert.omarchy-recipes enabled third-party menu,bar-widget Omarchy Recipes
 ```
 
-> If the plugin was previously enabled **without** a section, `enable <id> right`
-> will not move it into the bar. Disable it first, then enable it with the
-> section:
+> A freshly installed third-party plugin lists as `disabled` until it is
+> enabled. If it is enabled but shows no bar icon, it was enabled *without* a
+> section: disable it, then enable it again with one.
 > ```bash
 > omarchy plugin disable io.github.mdelgert.omarchy-recipes
 > omarchy plugin enable io.github.mdelgert.omarchy-recipes right
@@ -195,7 +213,7 @@ Open a specific recipe directly by passing its id:
 omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{"recipe":"example-numeric-setting"}'
 ```
 
-### Update it
+### Updating a working copy
 
 ```bash
 git pull
@@ -228,13 +246,17 @@ omarchy plugin disable io.github.mdelgert.omarchy-recipes   # keep it installed,
 omarchy plugin remove io.github.mdelgert.omarchy-recipes --yes
 ```
 
-`remove` disables the plugin and moves its folder to a hidden backup beside it,
-`~/.config/omarchy/plugins/.io.github.mdelgert.omarchy-recipes.bak.<timestamp>`.
-Delete that too if you want it gone:
+`remove` disables the plugin first. What happens to the folder depends on how it
+was installed: a plugin added with `omarchy plugin add` is a git clone and is
+deleted outright, while one copied in by `install.sh` is moved to a hidden
+backup beside it. Delete that backup too if you want it gone:
 
 ```bash
 rm -rf ~/.config/omarchy/plugins/.io.github.mdelgert.omarchy-recipes.bak.*
 ```
+
+Your own recipes live in `~/.config/omarchy-recipes/`, not in the plugin folder,
+so removing the plugin does not delete them.
 
 Then remove the rest:
 
@@ -257,6 +279,7 @@ repository checkout.
 | --- | --- |
 | `omarchy plugin list` does not show the plugin | The shell has not rescanned. Run `omarchy-shell shell rescanPlugins`. |
 | The plugin lists as `disabled` | Third-party plugins start disabled. Run `omarchy plugin enable io.github.mdelgert.omarchy-recipes right`. |
+| `omarchy plugin add` says the id is already used | It is already installed. Use `omarchy plugin update <id>`, or remove it first. |
 | No bar icon, but the plugin is enabled | It was enabled without a section, so it is not in the bar layout. `omarchy plugin disable` it, then `omarchy plugin enable <id> right`. |
 | The bar icon is missing after a QML change | The shell caches plugin QML. Run `omarchy-restart-shell`. |
 | Nothing happens on `toggle` | The plugin is disabled, or the shell is not running. Check `omarchy-shell shell ping`. |

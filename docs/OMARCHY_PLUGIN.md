@@ -21,10 +21,24 @@ Reference: https://plugins.omarchy.org/develop.html
   "schemaVersion": 1,
   "id": "io.github.mdelgert.omarchy-recipes",
   "kinds": ["menu", "bar-widget"],
-  "entryPoints": { "menu": "Menu.qml", "barWidget": "BarWidget.qml" },
+  "entryPoints": {
+    "menu": "omarchy-plugin/Menu.qml",
+    "barWidget": "omarchy-plugin/BarWidget.qml"
+  },
   "barWidget": { "displayName": "Recipes", "defaultSection": "right" }
 }
 ```
+
+`manifest.json` lives at the **repository root**, and its entry points reach
+down into `omarchy-plugin/`. That is what makes the repository directly
+installable: `omarchy plugin add` clones a repository and validates the clone
+root, so a manifest anywhere else means the command fails with
+`missing manifest.json`. Entry points may be relative paths as long as they
+contain no `..` and the files exist.
+
+A consequence worth keeping: nothing in the repository may be a symlink, since
+Omarchy refuses a plugin folder containing one. `make lint-qml` builds its
+import directory under `/tmp` for exactly this reason.
 
 Declaring both kinds keeps the menu owned by the shell's panel loader (a plugin
 with a `menu`/`panel`/`overlay` kind is excluded from the bar-widget summon
@@ -76,10 +90,24 @@ showing an empty list.
 
 ## Installing
 
+Normal install, straight from git:
+
+```bash
+omarchy plugin add https://github.com/mdelgert/omarchy-recipes.git --enable
+omarchy plugin update io.github.mdelgert.omarchy-recipes     # later
+```
+
+Development install, from a working tree including uncommitted changes:
+
 ```bash
 ./omarchy-plugin/install.sh     # or: make plugin
 omarchy plugin enable io.github.mdelgert.omarchy-recipes right
 ```
+
+`install.sh` mirrors the repository rather than rearranging it, so both installs
+produce the same layout and share the one manifest. That is deliberate: a plugin
+that behaves differently depending on how it was installed is a plugin whose
+bugs only reproduce for some people.
 
 The trailing section (`left`, `center`, `right`) places the bar icon. A plugin
 already enabled *without* a section stays out of the bar layout — `enable` will
