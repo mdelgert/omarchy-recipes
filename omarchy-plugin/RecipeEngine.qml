@@ -97,6 +97,30 @@ Item {
 
   readonly property bool authoringBusy: planning || drafting || saving
 
+  // How long the current call has been running. A model call takes minutes,
+  // and a button that only greys out is indistinguishable from a hang.
+  property int elapsedSeconds: 0
+
+  Timer {
+    id: busyTicker
+    interval: 1000
+    repeat: true
+    running: engine.authoringBusy
+    onTriggered: engine.elapsedSeconds += 1
+  }
+
+  onAuthoringBusyChanged: if (authoringBusy) elapsedSeconds = 0
+
+  // Stop whatever is in flight. Nothing has been written at this point — the
+  // agent only ever returns text — so cancelling is always safe.
+  function cancelAuthoring() {
+    if (planProc.running) planProc.running = false
+    if (draftProc.running) draftProc.running = false
+    planning = false
+    drafting = false
+    authoringError = "Cancelled."
+  }
+
   signal detailLoaded(string recipeId)
   signal actionCompleted(string action, var run)
   signal planReady()

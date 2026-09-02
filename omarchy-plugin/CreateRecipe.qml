@@ -134,6 +134,74 @@ FocusScope {
         }
       }
 
+      // ---- progress --------------------------------------------------------
+      //
+      // A model call takes minutes. Without an elapsed count and something
+      // moving, a disabled button is indistinguishable from a freeze — which
+      // is exactly how it read the first time.
+      Column {
+        width: parent.width
+        spacing: Style.spacing.xs
+        visible: root.engine.authoringBusy
+
+        Row {
+          spacing: Style.spacing.controlGap
+
+          Text {
+            id: spinner
+            textFormat: Text.PlainText
+            property int frame: 0
+            readonly property string frames: "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+            text: frames.charAt(frame)
+            color: root.accent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+
+            Timer {
+              interval: 90
+              repeat: true
+              running: root.engine.authoringBusy
+              onTriggered: spinner.frame = (spinner.frame + 1) % spinner.frames.length
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: (root.engine.planning ? "Asking the agent"
+                  : root.engine.drafting ? "Writing the recipe"
+                  : "Saving")
+                  + " — " + root.engine.elapsedSeconds + "s"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          wrapMode: Text.WordWrap
+          text: root.engine.drafting
+            ? "Writing a recipe usually takes one to three minutes. Nothing is being "
+              + "changed on your system — the agent is only being asked for text."
+            : "Usually under a minute."
+          color: Qt.darker(root.foreground, 1.5)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        Button {
+          text: "Cancel"
+          bordered: true
+          focusable: true
+          visible: root.engine.planning || root.engine.drafting
+          foreground: root.foreground
+          accent: root.accent
+          fontFamily: root.fontFamily
+          onClicked: root.engine.cancelAuthoring()
+        }
+      }
+
       Text {
         textFormat: Text.PlainText
         width: parent.width
