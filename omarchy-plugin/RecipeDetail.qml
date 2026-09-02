@@ -422,16 +422,23 @@ FocusScope {
         radius: Style.cornerRadius
         borderSpec: Border.flat(Util.alpha(root.foreground, 0.10), 1)
 
-        Text {
+        // Selectable so a failure can be copied into a bug report. Read-only,
+        // and still rendered as plain text: recipe output is untrusted.
+        TextEdit {
           id: logText
-          textFormat: Text.PlainText
+          readOnly: true
+          selectByMouse: true
+          selectByKeyboard: true
+          textFormat: TextEdit.PlainText
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: parent.top
           anchors.margins: Style.spacing.rowPaddingX
-          wrapMode: Text.Wrap
+          wrapMode: TextEdit.Wrap
           text: root.engine.logText
           color: Qt.darker(root.foreground, 1.2)
+          selectionColor: Style.selectionFillFor(root.foreground, root.accent)
+          selectedTextColor: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }

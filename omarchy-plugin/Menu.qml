@@ -82,6 +82,7 @@ Item {
   function goBrowse() {
     view = "browse"
     recipeEngine.select("")
+    panel.holdFocus()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -94,6 +95,8 @@ Item {
   function openCreate() {
     view = "create"
     recipeEngine.select("")
+    // Take the keyboard first, then hand the rest of the desktop back.
+    panel.releaseFocusAfterPrime()
     Qt.callLater(function() { create.forceActiveFocus() })
   }
 
@@ -221,7 +224,44 @@ Item {
 
     WlrLayershell.namespace: "omarchy-recipes-menu"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+
+    // Keyboard focus differs by view, because the two views want opposite
+    // things from the compositor.
+    //
+    // Browsing is a pick-a-row launcher: it must own the keyboard the instant
+    // it appears, so it takes Exclusive like the built-in Omarchy menu.
+    //
+    // Create Recipe is a form. You may well want to copy a prompt out of an
+    // editor on another monitor while it is open, and Exclusive makes Hyprland
+    // route every pointer event to this surface no matter which output the
+    // cursor is over — which locks the rest of the desktop. So the authoring
+    // view primes with Exclusive to take the keyboard, then drops to OnDemand
+    // and lets you click away. Clicking the card takes the keyboard back.
+    property bool focusPrimed: false
+
+    function releaseFocusAfterPrime() {
+      panel.focusPrimed = false
+      focusPrimeTimer.restart()
+    }
+
+    function holdFocus() {
+      focusPrimeTimer.stop()
+      panel.focusPrimed = false
+    }
+
+    WlrLayershell.keyboardFocus: !root.opened
+      ? WlrKeyboardFocus.None
+      : (panel.focusPrimed ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive)
+
+    onVisibleChanged: if (!visible) panel.holdFocus()
+
+    Timer {
+      id: focusPrimeTimer
+      // Long enough for a few Wayland commit cycles, short enough that the
+      // grab is never noticeable.
+      interval: 120
+      onTriggered: if (root.opened && root.view === "create") panel.focusPrimed = true
+    }
 
     // The detail view carries a generated form, run output, and history, so it
     // is given a wider card than the browse list.
@@ -265,8 +305,13 @@ Item {
       borderSpec: root.borderSpec
       padding: Style.spacing.panelPadding
 
-      // Clicks on the card must not reach the dismissal area behind it.
-      MouseArea { anchors.fill: parent; onClicked: {} }
+      // Clicks on the card must not reach the dismissal area behind it. They
+      // also take the keyboard back: with OnDemand focus the user can click
+      // away to another window, and clicking the card is how they return.
+      MouseArea {
+        anchors.fill: parent
+        onClicked: if (root.view !== "create") keyCatcher.forceActiveFocus()
+      }
 
       // One key handler for the whole card. Content lives inside it, and
       // `Keys.AfterItem` lets a focused text field, spin box, or dropdown

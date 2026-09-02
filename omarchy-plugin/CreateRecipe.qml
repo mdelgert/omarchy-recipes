@@ -353,6 +353,20 @@ FocusScope {
         }
 
         Button {
+          text: "Copy"
+          bordered: true
+          focusable: true
+          foreground: root.foreground
+          accent: root.accent
+          fontFamily: root.fontFamily
+          onClicked: {
+            draftText.selectAll()
+            draftText.copy()
+            draftText.deselect()
+          }
+        }
+
+        Button {
           text: "Discard"
           bordered: true
           focusable: true
@@ -381,13 +395,22 @@ FocusScope {
           clip: true
           boundsBehavior: Flickable.StopAtBounds
 
-          Text {
+          // TextEdit rather than Text: the whole point of showing the script
+          // is that the user can audit it, and auditing often means copying it
+          // somewhere else. readOnly keeps it display-only; the engine still
+          // re-lints whatever is saved regardless of what happens here.
+          TextEdit {
             id: draftText
-            textFormat: Text.PlainText
+            readOnly: true
+            selectByMouse: true
+            selectByKeyboard: true
+            textFormat: TextEdit.PlainText
             width: parent.width
-            wrapMode: Text.Wrap
+            wrapMode: TextEdit.Wrap
             text: root.engine.draftText
             color: Qt.darker(root.foreground, 1.15)
+            selectionColor: Style.selectionFillFor(root.foreground, root.accent)
+            selectedTextColor: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
