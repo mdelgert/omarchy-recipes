@@ -21,6 +21,8 @@ Read:
 2. `docs/ARCHITECTURE.md`
 3. `docs/RECIPE_SPEC.md`
 4. `skills/recipe-authoring/SKILL.md` when editing or adding recipes
+5. `docs/tasks/<slug>.md` for the specific assignment, if one was given — see
+   `docs/AGENT_WORKFLOW.md` for how tasks are scoped and reviewed
 
 ## Coding expectations
 
@@ -44,3 +46,5 @@ A change is not complete until:
 - `./bin/omarchy-recipes validate` passes
 - docs/spec are updated if the contract changed
 - new modifying recipes have an undo declaration and documented reversal behavior
+- if you were given a `docs/tasks/<slug>.md` file, its Report section is
+  filled in and its Acceptance criteria are checked off
