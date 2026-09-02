@@ -72,7 +72,7 @@ omarchy-recipes contribute <recipe-id> --testing "..." --push     # and open the
 ## Pull request body
 
 `omarchy-recipes contribute` generates the body from the recipe's own metadata,
-following the template in `docs/milestones/Milestone 2 Agent Recipe.md`: recipe,
+following the template in `docs/milestones/MILESTONE-2-SPEC.md`: recipe,
 purpose, changes, backup, undo, compatibility, testing, conflicts, and whether
 AI generated it. Fill in the testing section with what was actually run — an
 empty or invented testing section is worse than none.

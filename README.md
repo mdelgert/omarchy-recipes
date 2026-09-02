@@ -130,7 +130,7 @@ and, when reversible:
 The engine and the native Omarchy browser both work. The CLI, metadata parser,
 validation, current-state protocol, history model, backup/undo helpers, example
 recipes, tests, and the Omarchy `menu` plugin are all in place. See
-[`MILESTONE-1.md`](MILESTONE-1.md) for what the first milestone delivered and
+[`docs/milestones/MILESTONE-1-REPORT.md`](docs/milestones/MILESTONE-1-REPORT.md) for what the first milestone delivered and
 where the edges still are.
 
 ## Using the menu
@@ -327,8 +327,8 @@ skills/recipe-contribution/SKILL.md  how an agent contributes a recipe upstream
 AGENTS.md                         project-wide instructions for coding agents
 schemas/recipe.schema.json        normalized metadata schema
 tests/                            engine tests, fixtures, QML logic tests
-MILESTONE-1.md                    what the native browser milestone delivered
-MILESTONE-2.md                    AI-assisted recipe authoring and contribution
+docs/tasks/                       backlog: one file per assignable task, see docs/AGENT_WORKFLOW.md
+docs/milestones/                  milestone specs (MILESTONE-N-SPEC.md) and reports (MILESTONE-N-REPORT.md)
 ```
 
 ## Design principles

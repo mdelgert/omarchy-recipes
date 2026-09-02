@@ -12,6 +12,7 @@ First read, in order:
 4. docs/RECIPE_SPEC.md
 5. skills/recipe-authoring/SKILL.md
 6. docs/OMARCHY_PLUGIN.md if touching the Omarchy GUI
+7. docs/tasks/<slug>.md — the specific task you are assigned below
 
 Core product idea: omarchy-recipes is a self-describing, reversible workstation automation system. It is not merely a shell-script launcher. Recipe Bash files are the source of truth for metadata and behavior. CLI/TUI/GUI frontends must dynamically discover recipes and generate controls from normalized metadata. Backup, exact restoration, idempotence, history, validation, least privilege, and human auditability are first-class concepts.
 
@@ -25,11 +26,16 @@ When you finish a change, run:
 and update docs/spec when changing the contract.
 ```
 
-## Suggested first agent tasks
+## What to hand the agent next
 
-1. Implement a proper `tui` command using Gum when available, with a dependency-free fallback.
-2. Implement the native Omarchy menu against the current built-in Quattro menu APIs.
-3. Add `preview`/`diff` protocol support for file-based recipes.
-4. Add a real low-risk Omarchy recipe (for example a user-level hotkey or idle setting) with exact backup/restore and tests.
-5. Add a user recipe search path such as `~/.config/omarchy-recipes/recipes/` without breaking repository recipes.
-6. Harden secret parameter handling before encouraging recipes that require secrets.
+Don't improvise a task list here — it goes stale and duplicates the roadmap.
+Pick (or write) one file under `docs/tasks/` (see `docs/tasks/README.md` for
+the convention and `docs/AGENT_WORKFLOW.md` for the full process), and add to
+the prompt above:
+
+```text
+Also read docs/tasks/<slug>.md and implement exactly that task.
+```
+
+`ROADMAP.md` tracks which phase-level items are still open if you need to
+choose what to turn into a task next.
