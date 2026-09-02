@@ -336,27 +336,60 @@ FocusScope {
           textFormat: Text.PlainText
           width: parent.width
           wrapMode: Text.WordWrap
-          text: "This is a preview. Run `omarchy-recipes contribute "
-              + (root.recipe ? String(root.recipe.id) : "<id>")
-              + " --push` in a terminal to branch, commit, and open the pull request."
-          color: Qt.darker(root.foreground, 1.6)
+          visible: root.engine.pullRequestUrl === ""
+          text: root.engine.contributePlan && root.engine.contributePlan.ready
+            ? "Adds recipes/community/" + (root.recipe ? String(root.recipe.id) : "") + ".sh "
+              + "and opens a pull request for review. It is never committed straight to the "
+              + "main branch, and it does not change anything on this machine."
+            : ""
+          color: Qt.darker(root.foreground, 1.5)
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }
 
-        Repeater {
-          model: root.engine.contributePlan && root.engine.contributePlan.steps
-            ? root.engine.contributePlan.steps : []
-          delegate: Text {
-            required property var modelData
-            textFormat: Text.PlainText
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "· " + String(modelData)
-            color: Qt.darker(root.foreground, 1.5)
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+        Row {
+          spacing: Style.spacing.controlGap
+          visible: root.engine.pullRequestUrl === ""
+
+          Button {
+            text: root.engine.submittingPr ? "Opening pull request…" : "Open pull request"
+            bordered: true
+            focusable: true
+            enabled: !root.engine.submittingPr
+              && !!root.engine.contributePlan && root.engine.contributePlan.ready === true
+            opacity: enabled ? 1 : 0.5
+            foreground: root.foreground
+            accent: root.accent
+            fontFamily: root.fontFamily
+            onClicked: root.engine.openPullRequest(root.recipe ? root.recipe.id : "")
           }
+
+          Button {
+            text: "Not now"
+            bordered: true
+            focusable: true
+            enabled: !root.engine.submittingPr
+            foreground: root.foreground
+            accent: root.accent
+            fontFamily: root.fontFamily
+            onClicked: root.engine.contributePlan = null
+          }
+        }
+
+        // The result, selectable so the link can actually be used.
+        TextEdit {
+          readOnly: true
+          selectByMouse: true
+          textFormat: TextEdit.PlainText
+          visible: root.engine.pullRequestUrl !== ""
+          width: parent.width
+          wrapMode: TextEdit.Wrap
+          text: "✓  pull request opened\n" + root.engine.pullRequestUrl
+          color: root.accent
+          selectionColor: Style.selectionFillFor(root.foreground, root.accent)
+          selectedTextColor: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
         }
       }
 
@@ -422,16 +455,23 @@ FocusScope {
         radius: Style.cornerRadius
         borderSpec: Border.flat(Util.alpha(root.foreground, 0.10), 1)
 
-        Text {
+        // Selectable so a failure can be copied into a bug report. Read-only,
+        // and still rendered as plain text: recipe output is untrusted.
+        TextEdit {
           id: logText
-          textFormat: Text.PlainText
+          readOnly: true
+          selectByMouse: true
+          selectByKeyboard: true
+          textFormat: TextEdit.PlainText
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: parent.top
           anchors.margins: Style.spacing.rowPaddingX
-          wrapMode: Text.Wrap
+          wrapMode: TextEdit.Wrap
           text: root.engine.logText
           color: Qt.darker(root.foreground, 1.2)
+          selectionColor: Style.selectionFillFor(root.foreground, root.accent)
+          selectedTextColor: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }

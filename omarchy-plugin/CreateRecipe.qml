@@ -52,7 +52,9 @@ FocusScope {
     decisions = ({})
     engine.resetAuthoring()
     requestField.text = ""
+    answerField.text = ""
   }
+
 
   function decide(resourceType, resolution) {
     var next = ({})
@@ -83,6 +85,10 @@ FocusScope {
         wrapMode: Text.WordWrap
         text: "Describe what you want your system to do. The agent inspects this machine, "
             + "checks for conflicts, and proposes a reversible recipe. Nothing runs until you say so."
+            + (root.engine.agentProvider
+               ? "\n\nUses the " + root.engine.agentProvider + " CLI already installed on this machine, "
+                 + "with its file and shell tools switched off — it is given facts and returns text."
+               : "")
         color: Qt.darker(root.foreground, 1.3)
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
@@ -125,6 +131,74 @@ FocusScope {
           accent: root.accent
           fontFamily: root.fontFamily
           onClicked: root.reset()
+        }
+      }
+
+      // ---- progress --------------------------------------------------------
+      //
+      // A model call takes minutes. Without an elapsed count and something
+      // moving, a disabled button is indistinguishable from a freeze — which
+      // is exactly how it read the first time.
+      Column {
+        width: parent.width
+        spacing: Style.spacing.xs
+        visible: root.engine.authoringBusy
+
+        Row {
+          spacing: Style.spacing.controlGap
+
+          Text {
+            id: spinner
+            textFormat: Text.PlainText
+            property int frame: 0
+            readonly property string frames: "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+            text: frames.charAt(frame)
+            color: root.accent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+
+            Timer {
+              interval: 90
+              repeat: true
+              running: root.engine.authoringBusy
+              onTriggered: spinner.frame = (spinner.frame + 1) % spinner.frames.length
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: (root.engine.planning ? "Asking the agent"
+                  : root.engine.drafting ? "Writing the recipe"
+                  : "Saving")
+                  + " — " + root.engine.elapsedSeconds + "s"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          wrapMode: Text.WordWrap
+          text: root.engine.drafting
+            ? "Writing a recipe usually takes one to three minutes. Nothing is being "
+              + "changed on your system — the agent is only being asked for text."
+            : "Usually under a minute."
+          color: Qt.darker(root.foreground, 1.5)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        Button {
+          text: "Cancel"
+          bordered: true
+          focusable: true
+          visible: root.engine.planning || root.engine.drafting
+          foreground: root.foreground
+          accent: root.accent
+          fontFamily: root.fontFamily
+          onClicked: root.engine.cancelAuthoring()
         }
       }
 
@@ -190,6 +264,59 @@ FocusScope {
             color: Qt.darker(root.foreground, 1.2)
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
+          }
+        }
+
+        // What the user has already told the agent. Shown rather than hidden,
+        // because a correction that silently vanishes is one the user cannot
+        // tell was applied.
+        Repeater {
+          model: root.engine.answers
+          delegate: Text {
+            required property var modelData
+            textFormat: Text.PlainText
+            width: column.width
+            wrapMode: Text.WordWrap
+            text: "→  " + String(modelData)
+            color: root.accent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+      }
+
+      // ---- answering back --------------------------------------------------
+
+      Column {
+        width: parent.width
+        spacing: Style.spacing.controlGap
+        visible: !!root.engine.plan && root.engine.draftText === ""
+
+        TextField {
+          id: answerField
+          width: parent.width
+          enabled: !root.engine.authoringBusy
+          placeholderText: "Answer a question, or correct the plan — then ask again"
+          foreground: root.foreground
+          accent: root.accent
+          onAccepted: if (!root.engine.authoringBusy) {
+            root.engine.answerAndReplan(requestField.text, text)
+            text = ""
+          }
+        }
+
+        Button {
+          text: root.engine.planning ? "Thinking…" : "Send answer"
+          bordered: true
+          focusable: true
+          enabled: !root.engine.authoringBusy && answerField.text.trim() !== ""
+          opacity: enabled ? 1 : 0.5
+          foreground: root.foreground
+          accent: root.accent
+          fontFamily: root.fontFamily
+          onClicked: {
+            root.engine.answerAndReplan(requestField.text, answerField.text)
+            answerField.text = ""
           }
         }
       }
@@ -353,6 +480,20 @@ FocusScope {
         }
 
         Button {
+          text: "Copy"
+          bordered: true
+          focusable: true
+          foreground: root.foreground
+          accent: root.accent
+          fontFamily: root.fontFamily
+          onClicked: {
+            draftText.selectAll()
+            draftText.copy()
+            draftText.deselect()
+          }
+        }
+
+        Button {
           text: "Discard"
           bordered: true
           focusable: true
@@ -381,13 +522,22 @@ FocusScope {
           clip: true
           boundsBehavior: Flickable.StopAtBounds
 
-          Text {
+          // TextEdit rather than Text: the whole point of showing the script
+          // is that the user can audit it, and auditing often means copying it
+          // somewhere else. readOnly keeps it display-only; the engine still
+          // re-lints whatever is saved regardless of what happens here.
+          TextEdit {
             id: draftText
-            textFormat: Text.PlainText
+            readOnly: true
+            selectByMouse: true
+            selectByKeyboard: true
+            textFormat: TextEdit.PlainText
             width: parent.width
-            wrapMode: Text.Wrap
+            wrapMode: TextEdit.Wrap
             text: root.engine.draftText
             color: Qt.darker(root.foreground, 1.15)
+            selectionColor: Style.selectionFillFor(root.foreground, root.accent)
+            selectedTextColor: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }

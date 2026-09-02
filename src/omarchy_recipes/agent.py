@@ -200,6 +200,13 @@ RESOURCE_SCHEMA = """Resource types and the field each expects:
 Always include a `recipe` claim with `keywords` so an existing equivalent
 recipe can be found.
 
+Claim ONLY what the recipe will actually create or modify. Do not claim a
+resource you merely considered and rejected, and do not claim a shortcut you are
+not going to bind — every claim becomes a conflict the user has to resolve, and
+one raised over something the recipe never touches is noise that trains them to
+click through the real ones. `config` claims must name a real Hyprland option
+such as `decoration:rounding`, not a general area.
+
 Write to the config files that actually exist on this machine. The
 `config-files` facts above say which are present and in what format — this
 Omarchy release may use `.lua` config where an older one used `.conf`. Do not
@@ -214,15 +221,34 @@ PLAN_SCHEMA = """{
   "risk": "low | medium | high",
   "undo": "restore | command | none",
   "resources": [{"type": "keybinding", "value": "SUPER + RETURN"}],
-  "questions": ["anything genuinely ambiguous about the request"],
+  "questions": ["anything genuinely ambiguous that you cannot decide yourself"],
   "notes": "what you will not touch"
 }"""
 
 
 def plan(request: str, root: Path, *, inspection_data: dict[str, Any] | None = None,
+         notes: list[str] | None = None,
          provider: str | None = None, model: str | None = None) -> dict[str, Any]:
-    """Ask what the change would touch, before any Bash exists."""
+    """Ask what the change would touch, before any Bash exists.
+
+    `notes` carries the exchange so far — the agent's questions and the user's
+    answers, plus any correction. Each call is still stateless: the whole
+    exchange is re-sent, so there is no hidden conversation state to get out of
+    step with what the user can see.
+    """
     facts = json.dumps(inspection_data or {}, indent=2)[:20000]
+    exchange = ""
+    if notes:
+        joined = "\n".join(f"- {n}" for n in notes)
+        exchange = f"""
+
+The user has already told you the following. Treat it as authoritative and do
+not ask about it again:
+
+<answers-so-far>
+{joined}
+</answers-so-far>
+"""
     prompt = f"""You are the recipe-authoring agent for `omarchy-recipes`.
 
 Read these rules and follow them exactly. They are authoritative:
@@ -242,7 +268,7 @@ Read-only facts about this machine, gathered by the engine:
 <system-facts>
 {facts}
 </system-facts>
-
+{exchange}
 Do NOT write a recipe yet. Identify what the change would touch so the engine
 can check for conflicts first.
 

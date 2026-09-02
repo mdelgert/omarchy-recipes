@@ -221,7 +221,36 @@ Item {
 
     WlrLayershell.namespace: "omarchy-recipes-menu"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+
+    // Prime with Exclusive so the menu takes the keyboard the moment it maps,
+    // then settle on OnDemand.
+    //
+    // Exclusive alone makes Hyprland route every pointer event to this surface
+    // no matter which output the cursor is over, which locks the user out of
+    // their other monitors for as long as the menu is open. OnDemand releases
+    // that grab while still letting the surface hold keyboard focus, so you can
+    // click across to another screen, copy a prompt, and click back.
+    //
+    // Same pattern as qs.Ui.KeyboardPanel, which documents the same Hyprland
+    // behaviour.
+    property bool focusPrimed: false
+
+    WlrLayershell.keyboardFocus: !root.opened
+      ? WlrKeyboardFocus.None
+      : (panel.focusPrimed ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive)
+
+    onBackingWindowVisibleChanged: {
+      panel.focusPrimed = false
+      if (backingWindowVisible && root.opened) focusPrimeTimer.restart()
+    }
+
+    Timer {
+      id: focusPrimeTimer
+      // Long enough for a few Wayland commit cycles, short enough that the
+      // compositor-wide grab is never noticeable.
+      interval: 120
+      onTriggered: if (root.opened) panel.focusPrimed = true
+    }
 
     // The detail view carries a generated form, run output, and history, so it
     // is given a wider card than the browse list.
@@ -265,8 +294,13 @@ Item {
       borderSpec: root.borderSpec
       padding: Style.spacing.panelPadding
 
-      // Clicks on the card must not reach the dismissal area behind it.
-      MouseArea { anchors.fill: parent; onClicked: {} }
+      // Clicks on the card must not reach the dismissal area behind it. They
+      // also take the keyboard back: with OnDemand focus the user can click
+      // away to another window, and clicking the card is how they return.
+      MouseArea {
+        anchors.fill: parent
+        onClicked: if (root.view === "browse") keyCatcher.forceActiveFocus()
+      }
 
       // One key handler for the whole card. Content lives inside it, and
       // `Keys.AfterItem` lets a focused text field, spin box, or dropdown

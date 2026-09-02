@@ -187,6 +187,34 @@ Two things worth knowing if you change the glyph:
   round-trip, and an empty `text` silently collapses the widget to zero width
   instead of erroring.
 
+## Keyboard focus and your other monitors
+
+The two views ask the compositor for different things.
+
+**Browsing** takes `WlrKeyboardFocus.Exclusive`, like the built-in Omarchy menu.
+It owns the keyboard the moment it appears, which is what makes type-to-filter
+work without clicking first.
+
+**Create Recipe** primes with `Exclusive` to take the keyboard, then settles on
+`OnDemand` about 120 ms later. Hyprland routes *every* pointer event to an
+exclusive surface regardless of which output the cursor is over, so an exclusive
+overlay locks you out of the rest of your desktop for as long as it is open.
+That is a fair trade for a pick-a-row launcher and the wrong one for a form you
+may want to keep open while copying a prompt out of an editor on another screen.
+
+Consequences worth knowing:
+
+- In the authoring view you can click away to another window and come back.
+  Clicking the card takes the keyboard back.
+- The generated script and the run log are read-only `TextEdit`s rather than
+  `Text`, so they can be selected and copied. A **Copy** button copies the whole
+  script. Both stay `PlainText`: recipe content is still untrusted and is never
+  interpreted.
+- The pattern is borrowed from `qs.Ui.KeyboardPanel`, which documents the same
+  Hyprland behaviour. It is not used for the browse view because that view is
+  summoned by keybinding rather than by a click, and dropping to `OnDemand`
+  hands focus straight back to the previously focused window.
+
 ## Keys
 
 | Key | Browse | Detail |

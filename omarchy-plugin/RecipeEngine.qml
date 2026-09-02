@@ -48,6 +48,11 @@ Item {
   property int candidateIndex: -1
   property string runnerPath: ""
   property bool runnerResolved: false
+  // A recipe asked for before the runner was resolved. Resolution is an async
+  // file probe, so opening the menu straight to a recipe — from a keybinding
+  // payload, say — arrives first and would otherwise run `info` with an empty
+  // command and never report anything.
+  property string pendingSelectId: ""
 
   // ---- observable state ---------------------------------------------------
 
@@ -88,8 +93,38 @@ Item {
   property var draftLint: null
   property string authoringError: ""
   property string savedRecipeId: ""
+  // The exchange so far: the user's answers and corrections. Re-sent whole on
+  // every call, so nothing is remembered that the user cannot see.
+  property var answers: []
+  // Which provider the engine will actually invoke, so the UI can say so
+  // rather than leaving the user guessing what just read their machine.
+  property string agentProvider: ""
 
   readonly property bool authoringBusy: planning || drafting || saving
+
+  // How long the current call has been running. A model call takes minutes,
+  // and a button that only greys out is indistinguishable from a hang.
+  property int elapsedSeconds: 0
+
+  Timer {
+    id: busyTicker
+    interval: 1000
+    repeat: true
+    running: engine.authoringBusy
+    onTriggered: engine.elapsedSeconds += 1
+  }
+
+  onAuthoringBusyChanged: if (authoringBusy) elapsedSeconds = 0
+
+  // Stop whatever is in flight. Nothing has been written at this point — the
+  // agent only ever returns text — so cancelling is always safe.
+  function cancelAuthoring() {
+    if (planProc.running) planProc.running = false
+    if (draftProc.running) draftProc.running = false
+    planning = false
+    drafting = false
+    authoringError = "Cancelled."
+  }
 
   signal detailLoaded(string recipeId)
   signal actionCompleted(string action, var run)
@@ -124,7 +159,7 @@ Item {
     // report the failure, so the message names a command the user can run.
     runnerPath = "omarchy-recipes"
     runnerResolved = true
-    reload()
+    flushPending()
   }
 
   // Existence probe rather than a trial execution: resolving which runner to
@@ -139,7 +174,7 @@ Item {
     onLoaded: {
       engine.runnerPath = path
       engine.runnerResolved = true
-      engine.reload()
+      engine.flushPending()
     }
     onLoadFailed: Qt.callLater(engine.tryNextCandidate)
   }
@@ -192,6 +227,9 @@ Item {
       engine.engineError = ""
       engine.recipes = parsed.data.recipes || []
       engine.problems = parsed.data.problems || []
+      // Only now is the runner known to work, which is the earliest point
+      // asking it anything else is worth doing.
+      if (engine.agentProvider === "") engine.loadProviders()
     }
   }
 
@@ -218,9 +256,20 @@ Item {
     lastAction = null
     logText = ""
     if (!selectedId) return
+    if (!runnerResolved) {
+      pendingSelectId = selectedId
+      return
+    }
+    pendingSelectId = ""
     loadingDetail = true
     infoProc.command = argv(["info", "--json", selectedId])
     infoProc.running = true
+  }
+
+  // Run once the runner is known, for whatever arrived too early.
+  function flushPending() {
+    reload()
+    if (pendingSelectId) select(pendingSelectId)
   }
 
   Process {
@@ -359,6 +408,7 @@ Item {
   // ---- authoring calls ----------------------------------------------------
 
   function resetAuthoring() {
+    answers = []
     plan = null
     planConflicts = null
     draftText = ""
@@ -372,9 +422,44 @@ Item {
   function requestPlan(request) {
     if (planning || !String(request || "").trim()) return
     resetAuthoring()
+    runPlan(request)
+  }
+
+  // Re-plan with an added answer or correction, keeping the exchange so far.
+  function answerAndReplan(request, answer) {
+    if (planning || !String(answer || "").trim()) return
+    var next = answers.slice()
+    next.push(String(answer))
+    answers = next
+    plan = null
+    planConflicts = null
+    draftText = ""
+    draftLint = null
+    authoringError = ""
+    runPlan(request)
+  }
+
+  function runPlan(request) {
     planning = true
-    planProc.command = argv(["agent", "plan", "--json", String(request)])
+    var args = ["agent", "plan", "--json", String(request)]
+    for (var i = 0; i < answers.length; i++) args = args.concat(["--answer", String(answers[i])])
+    planProc.command = argv(args)
     planProc.running = true
+  }
+
+  function loadProviders() {
+    if (providerProc.running || !runnerResolved) return
+    providerProc.command = argv(["agent", "providers", "--json"])
+    providerProc.running = true
+  }
+
+  Process {
+    id: providerProc
+    stdout: StdioCollector { id: providerOut; waitForEnd: true }
+    onExited: function() {
+      var parsed = Model.parseResponse(providerOut.text, engine.schemaVersion)
+      if (parsed.ok) engine.agentProvider = String(parsed.data.default || "")
+    }
   }
 
   Process {
@@ -462,6 +547,8 @@ Item {
 
   property bool contributing: false
   property var contributePlan: null
+  property bool submittingPr: false
+  property string pullRequestUrl: ""
 
   // Always a dry run from the UI. Offering a recipe upstream is a pull request
   // someone will read; the plugin shows what would be sent and stops there.
@@ -470,8 +557,37 @@ Item {
     contributing = true
     contributePlan = null
     authoringError = ""
+    pullRequestUrl = ""
     contributeProc.command = argv(["contribute", "--json", String(recipeId)])
     contributeProc.running = true
+  }
+
+  // The real submission. Confirmed by the preview the user has just read.
+  function openPullRequest(recipeId) {
+    if (submittingPr || !recipeId) return
+    submittingPr = true
+    authoringError = ""
+    prProc.command = argv(["contribute", "--json", "--push", String(recipeId)])
+    prProc.running = true
+  }
+
+  Process {
+    id: prProc
+    stdout: StdioCollector { id: prOut; waitForEnd: true }
+    stderr: StdioCollector { id: prErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      engine.submittingPr = false
+      var parsed = Model.parseResponse(prOut.text, engine.schemaVersion)
+      if (!parsed.ok) {
+        engine.authoringError = engine.describeFailure(parsed.error, exitCode, prErr.text)
+        return
+      }
+      engine.contributePlan = parsed.data
+      engine.pullRequestUrl = String(parsed.data.pull_request_url || "")
+      if (!engine.pullRequestUrl && parsed.data.reason)
+        engine.authoringError = String(parsed.data.reason)
+          + (parsed.data.hint ? " — " + String(parsed.data.hint) : "")
+    }
   }
 
   Process {
