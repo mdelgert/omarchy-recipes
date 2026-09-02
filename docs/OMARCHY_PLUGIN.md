@@ -1,68 +1,171 @@
 # Omarchy plugin integration
 
-Omarchy's current plugin development guide (updated August 13, 2026) defines `menu` as a summoned menu entry point (`Menu.qml`) and `service` as a headless singleton (`Service.qml`). Third-party plugins live under `~/.config/omarchy/plugins/<plugin-id>/`, and Omarchy validates the manifest with `omarchy plugin validate`.
+The native frontend is an Omarchy `menu` plugin: a summoned layer-shell card
+that lists recipes by category, searches them, and drills into one recipe's
+generated form, status, output, and history. It also declares `bar-widget`, so
+a bar icon opens that same menu — the pattern Omarchy's own menu plugin uses.
 
-The documentation also warns that plugins share the long-running Omarchy shell process and run unsandboxed with the user's permissions. Keep recipe execution behind the runner boundary rather than embedding arbitrary shell code into QML.
+Omarchy's plugin guide defines `menu` as a summoned entry point (`Menu.qml`),
+validated with `omarchy plugin validate`. Third-party plugins live one level
+under `~/.config/omarchy/plugins/<plugin-id>/`. Plugins share the long-running
+Omarchy shell process and run unsandboxed with the user's permissions, which is
+why recipe execution stays behind the runner boundary instead of being embedded
+in QML.
 
 Reference: https://plugins.omarchy.org/develop.html
 
-## Proposed plugin contract
-
-The starter manifest uses a `menu` entry point only. A later version may add a `service` if persistent indexing/state observation is justified.
+## Plugin contract
 
 ```json
 {
   "schemaVersion": 1,
-  "id": "io.github.REPLACE_ME.omarchy-recipes",
-  "name": "Omarchy Recipes",
-  "version": "0.1.0",
-  "author": "REPLACE_ME",
-  "license": "MIT",
-  "description": "Browse and run self-describing, reversible workstation recipes.",
-  "kinds": ["menu"],
-  "entryPoints": { "menu": "Menu.qml" }
+  "id": "io.github.mdelgert.omarchy-recipes",
+  "kinds": ["menu", "bar-widget"],
+  "entryPoints": { "menu": "Menu.qml", "barWidget": "BarWidget.qml" },
+  "barWidget": { "displayName": "Recipes", "defaultSection": "right" }
 }
 ```
 
-## Why the QML starter is intentionally thin
+Declaring both kinds keeps the menu owned by the shell's panel loader (a plugin
+with a `menu`/`panel`/`overlay` kind is excluded from the bar-widget summon
+path), so the icon, the keybinding, and `omarchy-shell shell toggle` are all the
+same code path.
 
-The native menu should be implemented against the current built-in `omarchy.menu` patterns and current Quickshell APIs on an actual Omarchy installation. The project should not duplicate parsing or lifecycle rules in JavaScript/QML.
+The shell's plugin Loader injects `omarchyPath`, `shell`, and `manifest` into
+the root item, then calls `open(payloadJson)` when the plugin is summoned and
+`close()` when it is hidden. `Menu.qml` also answers `ping()` and `refresh()`.
 
-Native UI implementation sequence:
+Payload:
 
-1. Run `bin/omarchy-recipes list --json` and populate model.
-2. Search/filter by title, category, tags.
-3. On selection, run `info <id> --json`.
-4. Generate controls from `parameters[]`.
-5. Run `check <id>` to display current state.
-6. Confirm risk/reversibility.
-7. Execute `run <id> --<param> <value> ...` in a controlled child process.
-8. Stream/display output without interpreting it as commands.
-9. Refresh status/history.
-10. Expose `undo <id>` only when an eligible successful apply exists.
+| Payload | Effect |
+| --- | --- |
+| `{}` | opens the browse list |
+| `{"recipe": "<recipe-id>"}` | opens straight into that recipe's detail view |
 
-## Local installation during development
+Opening a recipe runs only the non-mutating `check`. Applying or undoing always
+requires an explicit, confirmed action.
 
-Use a namespaced ID you control. Then place or clone the plugin under:
+## File layout
 
 ```text
-~/.config/omarchy/plugins/<plugin-id>/
+omarchy-plugin/
+  manifest.json          menu + bar-widget kinds and their entry points
+  Menu.qml               surface, navigation, keys, confirmation
+  BarWidget.qml          bar icon; opens the menu, holds no state
+  RecipeDetail.qml       generated form, status, actions, output, history
+  ParameterControl.qml   one control per declared parameter type
+  RecipeEngine.qml       every engine call; the only file that talks to the runner
+  RecipeModel.js         pure presentation helpers, unit tested
+  install.sh             copy this tree into ~/.config/omarchy/plugins/
 ```
 
-Validate:
+## Runner resolution
+
+`RecipeEngine.qml` looks for the runner in this order and uses the first that
+exists. Resolution is an existence check, not a trial execution: choosing a
+runner must not run anything.
+
+1. `$OMARCHY_RECIPES_BIN`
+2. `<plugin>/bin/omarchy-recipes` — the installed plugin ships the engine
+3. `<plugin>/../bin/omarchy-recipes` — running from a checkout
+4. `~/.local/bin/omarchy-recipes`
+5. `omarchy-recipes` on `PATH`
+
+If none of them work, the menu says so and names the runner it tried instead of
+showing an empty list.
+
+## Installing
 
 ```bash
-omarchy plugin validate ~/.config/omarchy/plugins/<plugin-id>
+./omarchy-plugin/install.sh     # or: make plugin
+omarchy plugin enable io.github.mdelgert.omarchy-recipes right
 ```
 
-Force discovery if needed:
+The trailing section (`left`, `center`, `right`) places the bar icon. A plugin
+already enabled *without* a section stays out of the bar layout — `enable` will
+not move it — so disable it first and enable it again with the section.
+
+The installer copies `omarchy-plugin/`, `bin/`, `src/`, `lib/`, and `recipes/`
+into the plugin directory so the installed plugin is self-contained. A symlink
+is not an option: Omarchy refuses a plugin folder containing one.
+
+Summon it:
 
 ```bash
-omarchy-shell shell rescanPlugins
+omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{}'
+omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{"recipe":"example-numeric-setting"}'
 ```
 
-Summon a menu plugin through the shell using its plugin ID; follow the current Omarchy docs/built-in examples for the payload expected by the chosen Menu base component.
+Bind it to a key in `~/.config/hypr/bindings.lua`:
 
-## Agent task for the first native GUI PR
+```lua
+o.bind("SUPER + SHIFT + R", "Recipes",
+  "omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{}'")
+```
 
-Use the current Omarchy built-in `shell/plugins/menu/Menu.qml` as a runtime reference, but create a much smaller recipe-focused menu. Do not copy the huge built-in menu wholesale. Prefer existing `qs.Ui`/`qs.Commons` components, match current panel/menu lifecycle conventions, and validate with `qmllint -I "$OMARCHY_PATH/shell"`.
+List the bindings already taken with `omarchy menu keybindings --print`.
+
+## Removing
+
+```bash
+omarchy plugin disable io.github.mdelgert.omarchy-recipes   # switch it off, keep it installed
+omarchy plugin remove io.github.mdelgert.omarchy-recipes --yes
+```
+
+`remove` disables the plugin first, then moves the folder to
+`~/.config/omarchy/plugins/.io.github.mdelgert.omarchy-recipes.bak.<timestamp>`.
+Delete that backup separately if you want the plugin gone entirely. The engine's
+state directory is not touched — see the README's uninstall section for the rest.
+
+## Development loop
+
+```bash
+make check          # engine tests, QML logic tests, recipe validation
+make lint-qml       # qmllint against the live Omarchy shell types
+make plugin         # reinstall into ~/.config/omarchy/plugins/
+omarchy-restart-shell
+```
+
+`omarchy-shell shell rescanPlugins` is enough for bar widgets, but a `menu`-kind
+plugin is loaded through the shell's component cache: edited QML keeps running
+the previously compiled version until the shell restarts. Run
+`omarchy-restart-shell` after `make plugin` when iterating on QML. Engine, recipe,
+and `RecipeModel.js` changes to the *installed* copy are picked up on the next
+summon.
+
+`qmllint` reports `unqualified` and `missing-property` warnings for the shell's
+own singleton pattern (`Style.font.body`, `Color.menu.text`) and for `root.`
+access from inside delegates. The built-in Omarchy menu produces the same
+classes of warning; compare against it rather than expecting a clean run.
+
+## The bar icon
+
+`BarWidget.qml` is deliberately stateless: it draws a Nerd Font book glyph
+(`\uf02d`) and asks the shell to toggle the menu. Showing live recipe status
+there would mean running `check` for every recipe on a timer in the background,
+and a recipe browser is something you open, not something you monitor.
+
+Two things worth knowing if you change the glyph:
+
+- Pick the codepoint by **rendering** it, not by trusting a Material Design
+  icon name. Several plausible-looking codepoints in JetBrainsMono Nerd Font
+  draw something entirely different:
+  ```bash
+  printf '\uf02d \uf0f6 \uf085\n' | magick -font /usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf \
+    -pointsize 64 label:@- glyphs.png
+  ```
+- Write it as a `\uXXXX` escape rather than pasting the literal character.
+  A private-use-area character does not survive every editor and shell
+  round-trip, and an empty `text` silently collapses the widget to zero width
+  instead of erroring.
+
+## Keys
+
+| Key | Browse | Detail |
+| --- | --- | --- |
+| type | filters recipes | goes to the focused control |
+| `↑` `↓` | move the cursor | — |
+| `Enter` / `→` | open the recipe | activate the focused button |
+| `Tab` | — | move between generated controls and buttons |
+| `Esc` | clear the filter, then close | back to the list |
+| `F5` | reload recipes | reload and re-check |

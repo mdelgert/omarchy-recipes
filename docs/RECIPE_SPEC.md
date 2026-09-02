@@ -84,6 +84,10 @@ Parameters are passed after the action as long options:
 ./recipe.sh apply --timeout 600 --mode balanced
 ```
 
+`undo` receives the parameter values recorded by the apply run it is reversing,
+so a recipe whose target is chosen by a parameter can locate the right resource.
+A recipe that needs no parameters for undo can ignore them.
+
 A recipe can use `recipe_parse_args "$@"` from `lib/recipe.sh`, which exposes values as `RECIPE_ARG_<NAME>` with names normalized to uppercase underscores.
 
 Example:
@@ -104,6 +108,37 @@ case "${1:-}" in
     ;;
 esac
 ```
+
+## Reporting current state
+
+`check` must not mutate anything. It reports what it found with:
+
+```bash
+recipe_state configured "600 seconds"
+recipe_state not-configured "No timeout configured"
+```
+
+which writes marker lines the engine parses and strips before handing the text
+to a frontend:
+
+```text
+@recipe.state <configured|not-configured|partial|unsupported|unknown>
+@recipe.summary <one line of human-readable detail>
+```
+
+`recipe_summary` can be used on its own, including from `apply` and `undo`, to
+describe what changed:
+
+```bash
+recipe_summary "${previous:-unset} → ${timeout} seconds"
+```
+
+A recipe that emits no marker still works: the engine reports `unknown` and uses
+the first line of output as the summary. A non-zero exit from `check` is always
+reported as `error`.
+
+Because a frontend runs `check` every time a recipe is selected, check runs are
+not recorded in history and leave no run directory behind.
 
 ## Backup contract
 

@@ -1,10 +1,32 @@
-.PHONY: test validate demo clean-demo
+.PHONY: test test-qml lint-qml check plugin demo clean-demo validate
+
+# Qt tools are not on PATH on a stock Arch/Omarchy install.
+QT_BIN ?= /usr/lib/qt6/bin
+# The Omarchy shell exports `qs.*` from its own tree; qmllint needs a directory
+# where that tree is reachable as `qs`.
+OMARCHY_PATH ?= /usr/share/omarchy
+QML_IMPORTS := .qml-imports
 
 test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
 
+test-qml:
+	QT_QPA_PLATFORM=offscreen $(QT_BIN)/qmltestrunner -input tests/qml
+
+$(QML_IMPORTS)/qs:
+	mkdir -p $(QML_IMPORTS)
+	ln -sfn $(OMARCHY_PATH)/shell $(QML_IMPORTS)/qs
+
+lint-qml: $(QML_IMPORTS)/qs
+	$(QT_BIN)/qmllint -I $(QML_IMPORTS) omarchy-plugin/*.qml
+
+check: test test-qml validate
+
 validate:
 	./bin/omarchy-recipes validate
+
+plugin:
+	./omarchy-plugin/install.sh
 
 demo:
 	./bin/omarchy-recipes run example-config-value --value balanced

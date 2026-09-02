@@ -28,13 +28,14 @@ Produce Bash recipes that are predictable, inspectable, idempotent where practic
 9. **Quote expansions.** Quote variable expansions unless word splitting is explicitly required and safe.
 10. **Use least privilege.** Do not run the whole script under sudo merely because one command needs elevation. Elevate the smallest possible command.
 11. **Do not silently destroy user customization.** Prefer targeted edits. Explain when replacing an entire managed file is intentional.
-12. **Make `check` read-only.** `check` must not install packages, create directories, touch files, restart services, or otherwise mutate the machine.
-13. **Verify after change.** After `apply` and `undo`, verify the expected condition when practical.
-14. **Fail clearly.** Use meaningful error messages and non-zero exit status.
-15. **Avoid curl-pipe-shell.** Download artifacts explicitly, verify source/signature/checksum when available, then execute/install.
-16. **Package installs are stateful.** Check whether the package was already present. Future undo must not uninstall something the recipe did not install.
-17. **Services are stateful.** Preserve whether a service was enabled/running before the recipe changed it.
-18. **Sensitive values.** Do not print secrets. Mark secret inputs as `type=secret`; the engine's complete secret-redaction support is future work, so avoid recipes requiring secrets until that work is complete.
+12. **Make `check` read-only.** `check` must not install packages, create directories, touch files, restart services, or otherwise mutate the machine. Frontends run it every time a recipe is selected.
+13. **Report state from `check`.** End `check` with `recipe_state configured "<detail>"` or `recipe_state not-configured "<detail>"` so a UI shows a state instead of guessing from prose. Use `recipe_summary` from `apply` and `undo` to say what changed (`"300 → 600 seconds"`).
+14. **Verify after change.** After `apply` and `undo`, verify the expected condition when practical.
+15. **Fail clearly.** Use meaningful error messages and non-zero exit status.
+16. **Avoid curl-pipe-shell.** Download artifacts explicitly, verify source/signature/checksum when available, then execute/install.
+17. **Package installs are stateful.** Check whether the package was already present. Future undo must not uninstall something the recipe did not install.
+18. **Services are stateful.** Preserve whether a service was enabled/running before the recipe changed it.
+19. **Sensitive values.** Do not print secrets. Mark secret inputs as `type=secret`; the engine's complete secret-redaction support is future work, so avoid recipes requiring secrets until that work is complete.
 
 ## Metadata guidance
 
@@ -59,6 +60,7 @@ apply() {
   validate_inputs
   inspect_current_state
   if already_desired; then
+    recipe_summary "Already configured"
     recipe_note "Already configured"
     return 0
   fi
@@ -99,5 +101,5 @@ Before finishing a generated recipe, answer internally:
 - Does undo restore what was there, not what I assume was there?
 - Can any parameter become shell syntax?
 - Is sudo scope minimal?
-- Is `check` truly read-only?
+- Is `check` truly read-only, and does it report a state?
 - Will stdout/stderr help a human debug failure?

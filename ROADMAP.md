@@ -13,18 +13,20 @@
 - [x] agent authoring skill
 - [x] Omarchy menu manifest scaffold
 - [ ] user recipe directory
-- [ ] richer validation diagnostics
-- [ ] explicit recipe protocol version
+- [x] richer validation diagnostics
+- [x] explicit recipe protocol version
 
 ## v0.2 — usable interaction
 
+- [x] current-state structured JSON contract
+- [x] native Omarchy recipe browser
+- [x] generated parameter controls
+- [x] execution/log view
+- [x] history + undo UI
 - [ ] TUI command (Gum when available, fallback otherwise)
 - [ ] preview/diff action
-- [ ] current-state structured JSON contract
-- [ ] native Omarchy recipe browser
-- [ ] generated parameter controls
-- [ ] execution/log view
-- [ ] history + undo UI
+- [ ] streaming output for long-running recipes
+- [ ] secret parameter handling (masked input, redacted logs)
 
 ## v0.3 — real recipe library
 

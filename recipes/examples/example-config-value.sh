@@ -23,9 +23,9 @@ recipe_parse_args "$@"
 case "$action" in
   check)
     if [[ -f "$target" ]]; then
-      printf 'configured: %s\n' "$(cat -- "$target")"
+      recipe_state configured "$(cat -- "$target")"
     else
-      printf 'not configured\n'
+      recipe_state not-configured "No demo configuration file yet"
     fi
     ;;
 

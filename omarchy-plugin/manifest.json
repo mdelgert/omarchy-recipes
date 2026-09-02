@@ -6,8 +6,16 @@
   "author": "Matthew David Elgert",
   "license": "MIT",
   "description": "Browse and run self-describing, reversible workstation recipes.",
-  "kinds": ["menu"],
+  "kinds": ["menu", "bar-widget"],
   "entryPoints": {
-    "menu": "Menu.qml"
+    "menu": "Menu.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Recipes",
+    "description": "Opens the recipe browser",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
   }
 }
