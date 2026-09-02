@@ -135,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     agl.add_argument("--json", action="store_true")
     agl.add_argument("--provider", default=None)
     agl.add_argument("--model", default=None)
+    agl.add_argument("--answer", action="append", dest="answers", default=None,
+                     help="an answer to one of the agent's questions, or a correction; repeatable")
     agl.add_argument("--domain", action="append", dest="domains", default=None,
                      help="inspection domain to gather; repeatable (default: config-files, keybindings, packages, services)")
 
@@ -334,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
                 domains = args.domains or ["config-files", "keybindings", "packages", "services"]
                 facts = {name: d.to_dict() for name, d in inspection.inspect(domains).items()}
                 plan = agent_mod.plan(args.request, root, inspection_data=facts,
+                                      notes=args.answers or None,
                                       provider=args.provider, model=args.model)
                 report = conflicts_mod.check(plan.get("resources") or [], root)
                 payload = {"plan": plan, "conflicts": report}

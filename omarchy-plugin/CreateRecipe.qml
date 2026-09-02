@@ -52,7 +52,9 @@ FocusScope {
     decisions = ({})
     engine.resetAuthoring()
     requestField.text = ""
+    answerField.text = ""
   }
+
 
   function decide(resourceType, resolution) {
     var next = ({})
@@ -83,6 +85,10 @@ FocusScope {
         wrapMode: Text.WordWrap
         text: "Describe what you want your system to do. The agent inspects this machine, "
             + "checks for conflicts, and proposes a reversible recipe. Nothing runs until you say so."
+            + (root.engine.agentProvider
+               ? "\n\nUses the " + root.engine.agentProvider + " CLI already installed on this machine, "
+                 + "with its file and shell tools switched off — it is given facts and returns text."
+               : "")
         color: Qt.darker(root.foreground, 1.3)
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
@@ -190,6 +196,59 @@ FocusScope {
             color: Qt.darker(root.foreground, 1.2)
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
+          }
+        }
+
+        // What the user has already told the agent. Shown rather than hidden,
+        // because a correction that silently vanishes is one the user cannot
+        // tell was applied.
+        Repeater {
+          model: root.engine.answers
+          delegate: Text {
+            required property var modelData
+            textFormat: Text.PlainText
+            width: column.width
+            wrapMode: Text.WordWrap
+            text: "→  " + String(modelData)
+            color: root.accent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+      }
+
+      // ---- answering back --------------------------------------------------
+
+      Column {
+        width: parent.width
+        spacing: Style.spacing.controlGap
+        visible: !!root.engine.plan && root.engine.draftText === ""
+
+        TextField {
+          id: answerField
+          width: parent.width
+          enabled: !root.engine.authoringBusy
+          placeholderText: "Answer a question, or correct the plan — then ask again"
+          foreground: root.foreground
+          accent: root.accent
+          onAccepted: if (!root.engine.authoringBusy) {
+            root.engine.answerAndReplan(requestField.text, text)
+            text = ""
+          }
+        }
+
+        Button {
+          text: root.engine.planning ? "Thinking…" : "Send answer"
+          bordered: true
+          focusable: true
+          enabled: !root.engine.authoringBusy && answerField.text.trim() !== ""
+          opacity: enabled ? 1 : 0.5
+          foreground: root.foreground
+          accent: root.accent
+          fontFamily: root.fontFamily
+          onClicked: {
+            root.engine.answerAndReplan(requestField.text, answerField.text)
+            answerField.text = ""
           }
         }
       }

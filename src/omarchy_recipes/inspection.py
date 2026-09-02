@@ -282,8 +282,15 @@ def config_option(key: str) -> DomainResult:
     ok, out, err = _run(["hyprctl", "-j", "getoption", key])
     if not ok:
         return DomainResult("config", available=False, error=err)
+    # hyprctl answers an unknown key with plain text on a zero exit, so a JSON
+    # decode failure here usually means "no such option", not a broken hyprctl.
+    # Saying so is the difference between a useful answer and a shrug.
+    text = out.strip()
+    if text.lower().startswith("no such option"):
+        return DomainResult("config", available=False, error=f"{key} is not a Hyprland option")
     try:
-        data = json.loads(out)
+        data = json.loads(text)
     except ValueError:
-        return DomainResult("config", available=False, error="hyprctl returned unreadable JSON")
+        return DomainResult("config", available=False,
+                            error=f"hyprctl gave an unreadable answer for {key}: {text[:80]}")
     return DomainResult("config", items=[{"key": key, **{k: v for k, v in data.items() if k != "set"}}])

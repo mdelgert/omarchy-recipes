@@ -88,6 +88,12 @@ Item {
   property var draftLint: null
   property string authoringError: ""
   property string savedRecipeId: ""
+  // The exchange so far: the user's answers and corrections. Re-sent whole on
+  // every call, so nothing is remembered that the user cannot see.
+  property var answers: []
+  // Which provider the engine will actually invoke, so the UI can say so
+  // rather than leaving the user guessing what just read their machine.
+  property string agentProvider: ""
 
   readonly property bool authoringBusy: planning || drafting || saving
 
@@ -192,6 +198,9 @@ Item {
       engine.engineError = ""
       engine.recipes = parsed.data.recipes || []
       engine.problems = parsed.data.problems || []
+      // Only now is the runner known to work, which is the earliest point
+      // asking it anything else is worth doing.
+      if (engine.agentProvider === "") engine.loadProviders()
     }
   }
 
@@ -359,6 +368,7 @@ Item {
   // ---- authoring calls ----------------------------------------------------
 
   function resetAuthoring() {
+    answers = []
     plan = null
     planConflicts = null
     draftText = ""
@@ -372,9 +382,44 @@ Item {
   function requestPlan(request) {
     if (planning || !String(request || "").trim()) return
     resetAuthoring()
+    runPlan(request)
+  }
+
+  // Re-plan with an added answer or correction, keeping the exchange so far.
+  function answerAndReplan(request, answer) {
+    if (planning || !String(answer || "").trim()) return
+    var next = answers.slice()
+    next.push(String(answer))
+    answers = next
+    plan = null
+    planConflicts = null
+    draftText = ""
+    draftLint = null
+    authoringError = ""
+    runPlan(request)
+  }
+
+  function runPlan(request) {
     planning = true
-    planProc.command = argv(["agent", "plan", "--json", String(request)])
+    var args = ["agent", "plan", "--json", String(request)]
+    for (var i = 0; i < answers.length; i++) args = args.concat(["--answer", String(answers[i])])
+    planProc.command = argv(args)
     planProc.running = true
+  }
+
+  function loadProviders() {
+    if (providerProc.running || !runnerResolved) return
+    providerProc.command = argv(["agent", "providers", "--json"])
+    providerProc.running = true
+  }
+
+  Process {
+    id: providerProc
+    stdout: StdioCollector { id: providerOut; waitForEnd: true }
+    onExited: function() {
+      var parsed = Model.parseResponse(providerOut.text, engine.schemaVersion)
+      if (parsed.ok) engine.agentProvider = String(parsed.data.default || "")
+    }
   }
 
   Process {
