@@ -74,8 +74,28 @@ Item {
   readonly property bool available: runnerResolved && runnerPath !== ""
   readonly property bool undoAvailable: !!(status && status.undo_available)
 
+  // ---- authoring (Milestone 2) --------------------------------------------
+  //
+  // The agent proposes, the engine checks, the user decides. These properties
+  // mirror that: a plan and its conflicts arrive first, a draft only after the
+  // user has resolved anything blocking.
+  property bool planning: false
+  property bool drafting: false
+  property bool saving: false
+  property var plan: null            // agent's intent + claimed resources
+  property var planConflicts: null   // engine's verdict on those claims
+  property string draftText: ""      // the generated recipe, shown in full
+  property var draftLint: null
+  property string authoringError: ""
+  property string savedRecipeId: ""
+
+  readonly property bool authoringBusy: planning || drafting || saving
+
   signal detailLoaded(string recipeId)
   signal actionCompleted(string action, var run)
+  signal planReady()
+  signal draftReady()
+  signal recipeSaved(string recipeId)
 
   // ---- lifecycle ----------------------------------------------------------
 
@@ -333,6 +353,139 @@ Item {
       // own view of the world rather than assuming what the run did.
       engine.refreshStatus()
       engine.actionCompleted(actionProc.action, engine.lastAction)
+    }
+  }
+
+  // ---- authoring calls ----------------------------------------------------
+
+  function resetAuthoring() {
+    plan = null
+    planConflicts = null
+    draftText = ""
+    draftLint = null
+    authoringError = ""
+    savedRecipeId = ""
+  }
+
+  // Ask what the request would touch. The engine checks the claims itself, so
+  // the conflicts attached to the reply are not the agent's opinion.
+  function requestPlan(request) {
+    if (planning || !String(request || "").trim()) return
+    resetAuthoring()
+    planning = true
+    planProc.command = argv(["agent", "plan", "--json", String(request)])
+    planProc.running = true
+  }
+
+  Process {
+    id: planProc
+    stdout: StdioCollector { id: planOut; waitForEnd: true }
+    stderr: StdioCollector { id: planErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      engine.planning = false
+      var parsed = Model.parseResponse(planOut.text, engine.schemaVersion)
+      if (!parsed.ok) {
+        engine.authoringError = engine.describeFailure(parsed.error, exitCode, planErr.text)
+        return
+      }
+      engine.plan = parsed.data.plan || null
+      engine.planConflicts = parsed.data.conflicts || null
+      engine.planReady()
+    }
+  }
+
+  // `decisions` maps a resource type to the resolution the user picked. The
+  // engine refuses to draft while a blocking conflict has no decision, so this
+  // cannot skip the user.
+  function requestDraft(request, decisions) {
+    if (drafting || !engine.plan) return
+    drafting = true
+    authoringError = ""
+    var payload = JSON.stringify({
+      plan: engine.plan,
+      conflicts: engine.planConflicts,
+      decisions: decisions || ({})
+    })
+    draftProc.command = argv(["agent", "draft", "--json", String(request), "--plan", payload])
+    draftProc.running = true
+  }
+
+  Process {
+    id: draftProc
+    stdout: StdioCollector { id: draftOut; waitForEnd: true }
+    stderr: StdioCollector { id: draftErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      engine.drafting = false
+      var parsed = Model.parseResponse(draftOut.text, engine.schemaVersion)
+      if (!parsed.ok) {
+        engine.authoringError = engine.describeFailure(parsed.error, exitCode, draftErr.text)
+        return
+      }
+      engine.draftText = String(parsed.data.recipe || "")
+      engine.draftLint = parsed.data.lint || null
+      engine.draftReady()
+    }
+  }
+
+  // Saving is a separate, explicit step. The engine lints again and refuses
+  // anything with errors, so this button cannot write a bad recipe.
+  function saveDraft(recipeId, text) {
+    if (saving || !String(recipeId || "").trim()) return
+    saving = true
+    authoringError = ""
+    saveProc.recipeId = String(recipeId)
+    saveProc.command = argv(["create", "--json", String(recipeId), "--body", String(text)])
+    saveProc.running = true
+  }
+
+  Process {
+    id: saveProc
+    property string recipeId: ""
+    stdout: StdioCollector { id: saveOut; waitForEnd: true }
+    stderr: StdioCollector { id: saveErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      engine.saving = false
+      var parsed = Model.parseResponse(saveOut.text, engine.schemaVersion)
+      if (!parsed.ok || !parsed.data.saved) {
+        engine.authoringError = parsed.ok
+          ? String(parsed.data.reason || "the engine refused to save the recipe")
+          : engine.describeFailure(parsed.error, exitCode, saveErr.text)
+        return
+      }
+      engine.savedRecipeId = saveProc.recipeId
+      engine.reload()
+      engine.recipeSaved(saveProc.recipeId)
+    }
+  }
+
+  // ---- contribution -------------------------------------------------------
+
+  property bool contributing: false
+  property var contributePlan: null
+
+  // Always a dry run from the UI. Offering a recipe upstream is a pull request
+  // someone will read; the plugin shows what would be sent and stops there.
+  function planContribution(recipeId) {
+    if (contributing || !recipeId) return
+    contributing = true
+    contributePlan = null
+    authoringError = ""
+    contributeProc.command = argv(["contribute", "--json", String(recipeId)])
+    contributeProc.running = true
+  }
+
+  Process {
+    id: contributeProc
+    stdout: StdioCollector { id: contributeOut; waitForEnd: true }
+    stderr: StdioCollector { id: contributeErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      engine.contributing = false
+      var parsed = Model.parseResponse(contributeOut.text, engine.schemaVersion)
+      if (!parsed.ok) {
+        engine.authoringError = engine.describeFailure(parsed.error, exitCode, contributeErr.text)
+        return
+      }
+      engine.contributePlan = parsed.data
     }
   }
 

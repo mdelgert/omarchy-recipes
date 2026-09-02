@@ -79,6 +79,33 @@ Every command also speaks JSON, which is what the frontends consume:
 ./bin/omarchy-recipes log --json example-config-value
 ```
 
+### Create a recipe by describing it
+
+Press `Ctrl+N` in the menu, or from the command line:
+
+```bash
+./bin/omarchy-recipes agent providers                      # claude, codex
+./bin/omarchy-recipes agent plan "Add a hotkey Super+Alt+Y that opens Firefox"
+```
+
+The agent inspects the machine, declares what it would touch, and the engine
+checks that against reality — a shortcut that is already bound stops the flow
+until you choose what to do. Then it writes the recipe, the engine lints it, and
+you read the Bash before it is saved. Nothing is applied until you press Apply.
+
+Authoring commands, used by the recipe-authoring agent so it never needs a shell
+of its own:
+
+```bash
+./bin/omarchy-recipes sources                      # collections and their trust level
+./bin/omarchy-recipes inspect --json keybindings   # read-only view of the machine
+echo '{"resources":[{"type":"keybinding","value":"SUPER + RETURN"}]}' \
+  | ./bin/omarchy-recipes conflicts --json         # exits 3 when the user must decide
+./bin/omarchy-recipes lint --json < draft.sh       # static and AI-safety checks
+./bin/omarchy-recipes create my-recipe < draft.sh  # save to the local collection
+./bin/omarchy-recipes contribute my-recipe         # dry-run pull request plan
+```
+
 Each response is an object stamped `{"schemaVersion": 1, ...}`. For `check`,
 `run`, and `undo`, `--json` goes before the recipe id — everything after the id
 is the recipe's own parameter list. The full contract is in
@@ -90,8 +117,17 @@ State is stored under:
 ${XDG_STATE_HOME:-~/.local/state}/omarchy-recipes/
 ```
 
-The engine scans the repository `recipes/` tree. `OMARCHY_RECIPES_ROOT` points it
-at a different checkout; user recipe directories are still to come.
+Recipes are discovered from three collections, in trust order:
+
+```text
+<checkout>/recipes/                           bundled    reviewed upstream
+~/.config/omarchy-recipes/recipes/local/      local      written here, by you or an agent
+~/.config/omarchy-recipes/recipes/community/  community  from another collection
+```
+
+A local or community recipe can never take an id a bundled one already claimed.
+`OMARCHY_RECIPES_ROOT` points the engine at a different checkout;
+`OMARCHY_RECIPES_HOME` relocates the user workspace.
 
 ## Omarchy menu
 
@@ -270,10 +306,12 @@ docs/ARCHITECTURE.md              component boundaries, JSON contract, lifecycle
 docs/RECIPE_SPEC.md               metadata + execution protocol
 docs/OMARCHY_PLUGIN.md            Omarchy plugin integration and testing
 skills/recipe-authoring/SKILL.md  rules for AI agents writing recipes
+skills/recipe-contribution/SKILL.md  how an agent contributes a recipe upstream
 AGENTS.md                         project-wide instructions for coding agents
 schemas/recipe.schema.json        normalized metadata schema
 tests/                            engine tests, fixtures, QML logic tests
 MILESTONE-1.md                    what the native browser milestone delivered
+MILESTONE-2.md                    AI-assisted recipe authoring and contribution
 ```
 
 ## Design principles

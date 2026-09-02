@@ -72,7 +72,7 @@ Item {
 
   // ---- navigation ---------------------------------------------------------
 
-  property string view: "browse"          // "browse" | "detail"
+  property string view: "browse"          // "browse" | "detail" | "create"
   property string filterText: ""
   property int selectedIndex: 0
   property bool cursorActive: false
@@ -89,6 +89,12 @@ Item {
     if (!recipeId) return
     view = "detail"
     recipeEngine.select(recipeId)
+  }
+
+  function openCreate() {
+    view = "create"
+    recipeEngine.select("")
+    Qt.callLater(function() { create.forceActiveFocus() })
   }
 
   function setFilter(text) {
@@ -179,8 +185,11 @@ Item {
   // Height the browse list wants, measured from the row model rather than read
   // back off the ListView: the list is sized by the card, so asking the list
   // how tall it is in order to size the card would be a binding loop.
+  // The create row sits above the list, so the card has to account for it or
+  // the last recipe is clipped.
+  readonly property bool createRowVisible: view === "browse" && filterText === ""
   readonly property int browseContentHeight: {
-    var total = 0
+    var total = createRowVisible ? rowHeight + Style.spacing.xs : 0
     for (var i = 0; i < rows.length; i++) {
       if (i > 0) total += Style.spacing.xs
       total += rows[i].kind === "header"
@@ -217,7 +226,7 @@ Item {
     // The detail view carries a generated form, run output, and history, so it
     // is given a wider card than the browse list.
     readonly property int cardWidth: Math.min(
-      root.view === "detail" ? Style.space(560) : Style.space(420),
+      root.view === "browse" ? Style.space(420) : Style.space(620),
       panel.width - Style.gapsOut * 2)
 
     // The card is as tall as its content and no taller, the way the built-in
@@ -228,7 +237,7 @@ Item {
       panel.height - Style.gapsOut * 2)
     readonly property int bodyContentHeight: root.view === "detail"
       ? detail.contentHeight
-      : root.browseContentHeight
+      : (root.view === "create" ? create.contentHeight : root.browseContentHeight)
     readonly property int cardChromeHeight: Style.spacing.panelPadding * 2
       + Border.top(root.borderSpec) + Border.bottom(root.borderSpec)
       + root.headerHeight + Style.spacing.md
@@ -279,9 +288,14 @@ Item {
             return
           }
           if (event.key === Qt.Key_Escape) {
-            if (root.view === "detail") root.goBrowse()
+            if (root.view !== "browse") root.goBrowse()
             else if (root.filterText) root.setFilter("")
             else root.requestClose()
+            event.accepted = true
+            return
+          }
+          if (event.key === Qt.Key_N && (event.modifiers & Qt.ControlModifier)) {
+            root.openCreate()
             event.accepted = true
             return
           }
@@ -332,11 +346,13 @@ Item {
               anchors.right: hint.left
               anchors.rightMargin: Style.spacing.md
               anchors.verticalCenter: parent.verticalCenter
-              text: root.view === "detail"
-                ? (recipeEngine.recipe ? String(recipeEngine.recipe.title || recipeEngine.recipe.id) : "Recipe")
-                : (root.filterText || "Search recipes…")
+              text: root.view === "create"
+                ? "Create a recipe"
+                : root.view === "detail"
+                  ? (recipeEngine.recipe ? String(recipeEngine.recipe.title || recipeEngine.recipe.id) : "Recipe")
+                  : (root.filterText || "Search recipes…")
               color: root.foreground
-              opacity: root.view === "detail" || root.filterText ? 1 : 0.58
+              opacity: root.view !== "browse" || root.filterText ? 1 : 0.58
               font.family: root.fontFamily
               font.pixelSize: Style.font.heading
               elide: Text.ElideRight
@@ -347,7 +363,7 @@ Item {
               textFormat: Text.PlainText
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              text: root.view === "detail"
+              text: root.view !== "browse"
                 ? "Esc  back"
                 : (recipeEngine.loadingList ? "loading…" : String(recipeEngine.recipes.length) + " recipes")
               color: Qt.darker(root.foreground, 1.5)
@@ -398,9 +414,45 @@ Item {
             height: content.height - headerItem.height - content.spacing
               - (problems.visible ? problems.height + content.spacing : 0)
 
+            Item {
+              id: createRow
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              height: root.rowHeight
+              visible: root.createRowVisible
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: createMouse.containsMouse ? root.selectedBackground : "transparent"
+
+                Text {
+                  textFormat: Text.PlainText
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.spacing.rowPaddingX
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "＋  Create recipe…            Ctrl+N"
+                  color: createMouse.containsMouse ? root.selectedText : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                MouseArea {
+                  id: createMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  onClicked: root.openCreate()
+                }
+              }
+            }
+
             ListView {
               id: resultList
-              anchors.fill: parent
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              anchors.top: createRow.visible ? createRow.bottom : parent.top
               visible: root.view === "browse"
               model: root.rows
               clip: true
@@ -442,15 +494,34 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: Style.spacing.xxs
 
-                    Text {
-                      textFormat: Text.PlainText
+                    Row {
                       width: parent.width
-                      text: row.modelData ? row.modelData.label : ""
-                      color: root.cursorActive && root.selectedIndex === row.index
-                        ? root.selectedText : root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.body
-                      elide: Text.ElideRight
+                      spacing: Style.spacing.controlGap
+
+                      Text {
+                        textFormat: Text.PlainText
+                        width: Math.min(implicitWidth, parent.width - badge.width - Style.spacing.controlGap)
+                        text: row.modelData ? row.modelData.label : ""
+                        color: root.cursorActive && root.selectedIndex === row.index
+                          ? root.selectedText : root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.body
+                        elide: Text.ElideRight
+                      }
+
+                      // Origin, shown on anything that did not ship with the
+                      // project. An agent-generated recipe must never be
+                      // mistaken for a reviewed one.
+                      Text {
+                        id: badge
+                        textFormat: Text.PlainText
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: text !== ""
+                        text: row.modelData && row.modelData.badge ? row.modelData.badge : ""
+                        color: Qt.darker(root.foreground, 1.6)
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
                     }
 
                     Text {
@@ -489,6 +560,18 @@ Item {
               color: Qt.darker(root.foreground, 1.4)
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
+            }
+
+            CreateRecipe {
+              id: create
+              anchors.fill: parent
+              visible: root.view === "create"
+              enabled: visible
+              engine: recipeEngine
+              foreground: root.foreground
+              accent: root.selectedText
+              fontFamily: root.fontFamily
+              onOpenRecipeRequested: function(recipeId) { root.openRecipe(recipeId) }
             }
 
             RecipeDetail {

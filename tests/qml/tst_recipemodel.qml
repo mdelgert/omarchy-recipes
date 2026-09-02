@@ -132,6 +132,32 @@ TestCase {
     compare(failed.error, "recipe not found")
   }
 
+  function test_origin_badges_distinguish_generated_recipes() {
+    // A bundled recipe is the baseline and carries no badge; badging
+    // everything would make the marker invisible.
+    compare(Model.sourceBadge({ source: "bundled" }), "")
+    compare(Model.sourceBadge({ source: "local", authoring: { generated_with_ai: true } }), "local · ai")
+    compare(Model.sourceBadge({ source: "local", authoring: { generated_with_ai: false } }), "local")
+    compare(Model.sourceBadge({ source: "community" }), "community")
+  }
+
+  function test_source_label_states_review_status() {
+    compare(Model.sourceLabel({ source_label: "Shipped with omarchy-recipes" }),
+            "Shipped with omarchy-recipes")
+    compare(Model.sourceLabel({ source_label: "Created on this machine",
+                                authoring: { generated_with_ai: true, reviewed: false } }),
+            "Created on this machine · AI-generated, not reviewed")
+    compare(Model.sourceLabel({ source_label: "Created on this machine",
+                                authoring: { generated_with_ai: true, reviewed: true } }),
+            "Created on this machine · AI-generated, reviewed")
+  }
+
+  function test_rows_carry_the_origin_badge() {
+    var rows = Model.rowsFor([{ id: "a", title: "A", description: "", category: "X",
+                                source: "local", authoring: { generated_with_ai: true } }], "")
+    compare(rows[1].badge, "local · ai")
+  }
+
   function test_state_presentation() {
     compare(Model.stateLabel("not-configured"), "Not configured")
     compare(Model.stateLabel("configured"), "Configured")

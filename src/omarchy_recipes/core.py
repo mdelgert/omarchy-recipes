@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import sources as sources_mod
+
 RECIPE_KEY_RE = re.compile(r"^\s*#\s*@recipe\.([A-Za-z0-9_-]+)\s+(.+?)\s*$")
 PARAM_RE = re.compile(r"^\s*#\s*@param\s+(.+?)\s*$")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -87,9 +89,17 @@ class Recipe:
     tags: list[str]
     parameters: list[Parameter]
     extra: dict[str, str]
+    # Where the recipe came from, decided by which directory it was found in
+    # rather than by anything the file claims about itself.
+    source: str = sources_mod.BUNDLED
+    # Provenance the file may declare: whether an agent wrote it and whether a
+    # human has since reviewed it. Never used to raise trust on its own.
+    authoring: dict[str, Any] = field(default_factory=lambda: {"generated_with_ai": False, "reviewed": False})
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        data["source_label"] = sources_mod.SOURCE_LABELS.get(self.source, self.source)
+        data["reviewed_upstream"] = sources_mod.SOURCE_REVIEWED_UPSTREAM.get(self.source, False)
         return data
 
 
@@ -196,7 +206,20 @@ def parse_recipe(path: Path) -> Recipe:
         raise RecipeError(f"{path}: invalid undo {undo!r}")
     if risk not in VALID_RISK:
         raise RecipeError(f"{path}: invalid risk {risk!r}")
-    known = {"id", "title", "description", "category", "platform", "distro", "privilege", "undo", "risk", "tags"}
+    known = {
+        "id", "title", "description", "category", "platform", "distro", "privilege",
+        "undo", "risk", "tags", "generated-with-ai", "reviewed",
+    }
+
+    def flag(key: str) -> bool:
+        raw = meta.get(key)
+        if raw is None:
+            return False
+        try:
+            return _bool(raw)
+        except ValueError as e:
+            raise RecipeError(f"{path}: @recipe.{key} must be true or false") from e
+
     return Recipe(
         id=rid,
         title=meta["title"],
@@ -211,6 +234,7 @@ def parse_recipe(path: Path) -> Recipe:
         tags=_split_csv(meta.get("tags", "")),
         parameters=params,
         extra={k: v for k, v in meta.items() if k not in known},
+        authoring={"generated_with_ai": flag("generated-with-ai"), "reviewed": flag("reviewed")},
     )
 
 
@@ -235,33 +259,43 @@ def _sort_key(recipe: Recipe) -> tuple[str, str]:
 def scan(root: Path) -> tuple[list[Recipe], list[dict[str, str]]]:
     """Discover recipes without letting one bad file hide the good ones.
 
+    Walks every source in trust order, so a local or community recipe can never
+    take an id a bundled one already claimed. That matters now that an agent can
+    write recipes here: shadowing `install-docker` with a generated file would
+    let untrusted code run under a name the user believes is reviewed.
+
     Returns the recipes that parsed plus a problem report. A frontend shows the
     working recipes and surfaces the problems; `validate` turns them into an
     error.
     """
-    recipe_dir = root / "recipes"
     recipes: list[Recipe] = []
     problems: list[dict[str, str]] = []
-    if not recipe_dir.exists():
-        return recipes, problems
+    seen: dict[str, Recipe] = {}
 
-    seen: dict[str, str] = {}
-    for path in sorted(recipe_dir.rglob("*.sh")):
-        try:
-            recipe = parse_recipe(path)
-        except RecipeError as e:
-            problems.append({"path": str(path), "error": str(e)})
+    for source in sources_mod.sources(root):
+        if not source.path.exists():
             continue
-        except OSError as e:
-            problems.append({"path": str(path), "error": f"unreadable: {e}"})
-            continue
-        if recipe.id in seen:
-            problems.append(
-                {"path": str(path), "error": f"duplicate recipe id {recipe.id!r}; already defined by {seen[recipe.id]}"}
-            )
-            continue
-        seen[recipe.id] = recipe.path
-        recipes.append(recipe)
+        for path in sorted(source.path.rglob("*.sh")):
+            try:
+                recipe = parse_recipe(path)
+            except RecipeError as e:
+                problems.append({"path": str(path), "source": source.name, "error": str(e)})
+                continue
+            except OSError as e:
+                problems.append({"path": str(path), "source": source.name, "error": f"unreadable: {e}"})
+                continue
+            recipe.source = source.name
+            previous = seen.get(recipe.id)
+            if previous is not None:
+                problems.append({
+                    "path": str(path),
+                    "source": source.name,
+                    "error": f"duplicate recipe id {recipe.id!r}; the {previous.source} recipe at "
+                             f"{previous.path} is used instead",
+                })
+                continue
+            seen[recipe.id] = recipe
+            recipes.append(recipe)
 
     recipes.sort(key=_sort_key)
     return recipes, problems

@@ -1,10 +1,53 @@
 # Recipe Authoring Skill
 
-Use this skill whenever creating or modifying an `omarchy-recipes` recipe.
+Use this skill whenever creating or modifying an `omarchy-recipes` recipe,
+whether a human is typing it or an agent is generating it from a request.
+
+This file is the authoritative ruleset. An agent must read it before generating
+a recipe, and the engine enforces the parts it can check
+(`omarchy-recipes lint`).
 
 ## Goal
 
 Produce Bash recipes that are predictable, inspectable, idempotent where practical, reversible by default, and safe for another person to run after reviewing the file.
+
+## Generating a recipe from a natural-language request
+
+Never go straight from a request to a running command. The recipe is the
+durable artifact; the conversation is not. Work in this order:
+
+1. **Understand the request.** Restate what will change, in one sentence, and
+   what it will not touch.
+2. **Inspect before deciding.** `omarchy-recipes inspect --json [domain ...]`
+   reads keybindings, packages, services, ports, mounts, containers, and the
+   environment. Use it instead of running your own shell commands: the engine
+   is the only thing allowed to touch the system, and inspection is read-only
+   by construction.
+3. **Declare what you intend to touch and check for conflicts** before writing
+   any Bash:
+
+   ```bash
+   echo '{"resources":[{"type":"keybinding","value":"SUPER + RETURN"}]}' \
+     | omarchy-recipes conflicts --json
+   ```
+
+   Supported claims: `keybinding`, `file`, `package`, `service`, `port`,
+   `mount`, `container`, `environment`, `config`, `recipe`.
+4. **Stop when `requires_user_decision` is true.** Present the conflict and the
+   offered `resolutions` and let the user choose. Never silently replace an
+   existing binding, port, container, or file. A `status` of `unknown` means the
+   check could not run — treat it as a conflict, not as permission.
+5. **Check for an existing recipe** with a `{"type": "recipe", "keywords": [...]}`
+   claim. Prefer running or improving what exists over adding a near-duplicate.
+6. **Write the recipe** following the rules below.
+7. **Lint it before it touches disk:** `omarchy-recipes lint --json < draft.sh`.
+   Fix every error. Explain every remaining warning to the user.
+8. **Show the generated Bash.** It is never hidden. The project's principle is
+   AI-authorable, human-auditable.
+9. **Save it** with `omarchy-recipes create <id> --json < draft.sh`. It lands in
+   the user's local collection, marked as agent-generated. It does not become a
+   bundled recipe, and it cannot take the id of one.
+10. **Test it** with the normal runner: `check`, then `run`, then `undo`.
 
 ## Mandatory structure
 
@@ -36,6 +79,15 @@ Produce Bash recipes that are predictable, inspectable, idempotent where practic
 17. **Package installs are stateful.** Check whether the package was already present. Future undo must not uninstall something the recipe did not install.
 18. **Services are stateful.** Preserve whether a service was enabled/running before the recipe changed it.
 19. **Sensitive values.** Do not print secrets. Mark secret inputs as `type=secret`; the engine's complete secret-redaction support is future work, so avoid recipes requiring secrets until that work is complete.
+
+## Provenance
+
+Do not write `@recipe.generated-with-ai` or `@recipe.reviewed` into a draft. The
+engine stamps both when the recipe is saved and ignores whatever the file
+claims, because a recipe must not be able to assert that a human reviewed it.
+
+Do not put any part of the conversation into the recipe. Metadata is a
+description of the change, not a transcript.
 
 ## Metadata guidance
 

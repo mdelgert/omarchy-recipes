@@ -123,10 +123,30 @@ function rowsFor(recipes, query) {
       kind: "recipe",
       label: String(recipe.title || recipe.id),
       detail: String(recipe.description || ""),
-      recipeId: String(recipe.id)
+      recipeId: String(recipe.id),
+      badge: sourceBadge(recipe)
     })
   }
   return rows
+}
+
+// Short origin marker for the browse list. Bundled recipes get nothing: they
+// are the baseline, and badging everything would make the marker invisible.
+function sourceBadge(recipe) {
+  var source = String(recipe && recipe.source || "bundled")
+  if (source === "bundled") return ""
+  var ai = recipe && recipe.authoring && recipe.authoring.generated_with_ai
+  if (source === "local") return ai ? "local · ai" : "local"
+  return source
+}
+
+function sourceLabel(recipe) {
+  var label = String(recipe && recipe.source_label || "")
+  if (!label) return ""
+  var ai = recipe && recipe.authoring && recipe.authoring.generated_with_ai
+  var reviewed = recipe && recipe.authoring && recipe.authoring.reviewed
+  if (!ai) return label
+  return label + (reviewed ? " · AI-generated, reviewed" : " · AI-generated, not reviewed")
 }
 
 function firstSelectableRow(rows) {
