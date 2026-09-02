@@ -1,3 +1,4 @@
+Add ansible support for scripts when it make sense https://github.com/ansible/ansible
 Add execute bash script execute and show results
 (examples)
 show IP address, open ports etc.
