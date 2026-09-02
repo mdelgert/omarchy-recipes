@@ -8,4 +8,6 @@ Add icons to recipes
 Add remix of recipes
 Add configuration change provider and model claude, copilot, codex own LLM
 Add list of good example recipes for Omarchy
+
 Add defaults in the header of the script the agent, LLM, prompt etc.
+Also add to the header default examples how to manually install and uninstall. 

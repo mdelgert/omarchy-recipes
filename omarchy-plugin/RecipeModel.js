@@ -149,6 +149,29 @@ function sourceLabel(recipe) {
   return label + (reviewed ? " · AI-generated, reviewed" : " · AI-generated, not reviewed")
 }
 
+// Split discovery problems into "something is broken" and "you have a local
+// copy of something that now ships with the project". Only the first is a
+// fault; showing both in red taught the user to ignore the colour.
+function problemSummary(problems) {
+  var faults = []
+  var superseded = []
+  var list = problems || []
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].superseded) superseded.push(list[i])
+    else faults.push(list[i])
+  }
+  var faultText = ""
+  if (faults.length === 1) faultText = "1 recipe could not be loaded: " + firstLine(faults[0].error, 200)
+  else if (faults.length > 1) faultText = faults.length + " recipes could not be loaded: " + firstLine(faults[0].error, 200)
+
+  var supersededText = ""
+  if (superseded.length === 1) supersededText = firstLine(superseded[0].error, 200)
+  else if (superseded.length > 1)
+    supersededText = superseded.length + " of your local recipes now ship with omarchy-recipes and are unused."
+
+  return { faultText: faultText, supersededText: supersededText }
+}
+
 function firstSelectableRow(rows) {
   for (var i = 0; i < (rows || []).length; i++) {
     if (rows[i].kind === "recipe") return i

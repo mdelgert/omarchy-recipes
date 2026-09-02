@@ -430,13 +430,24 @@ Item {
 
             Text {
               textFormat: Text.PlainText
-              visible: recipeEngine.problems.length > 0
+              visible: text !== ""
               width: parent.width
               wrapMode: Text.WordWrap
-              text: recipeEngine.problems.length
-                + (recipeEngine.problems.length === 1 ? " recipe was skipped: " : " recipes were skipped: ")
-                + Model.firstLine(recipeEngine.problems.length ? recipeEngine.problems[0].error : "", 200)
+              text: Model.problemSummary(recipeEngine.problems).faultText
               color: Color.urgent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            // Not a fault: the recipe still works, it just comes from the
+            // collection now. Muted, so the red above keeps meaning something.
+            Text {
+              textFormat: Text.PlainText
+              visible: text !== ""
+              width: parent.width
+              wrapMode: Text.WordWrap
+              text: Model.problemSummary(recipeEngine.problems).supersededText
+              color: Qt.darker(root.foreground, 1.6)
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
             }

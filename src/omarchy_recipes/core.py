@@ -287,12 +287,18 @@ def scan(root: Path) -> tuple[list[Recipe], list[dict[str, str]]]:
             recipe.source = source.name
             previous = seen.get(recipe.id)
             if previous is not None:
-                problems.append({
-                    "path": str(path),
-                    "source": source.name,
-                    "error": f"duplicate recipe id {recipe.id!r}; the {previous.source} recipe at "
-                             f"{previous.path} is used instead",
-                })
+                if previous.source == sources_mod.BUNDLED and source.name == sources_mod.LOCAL:
+                    # The ordinary end state of contributing a recipe: it now
+                    # ships in the collection, so the local copy is redundant
+                    # rather than broken.
+                    detail = (f"{recipe.id!r} now ships with omarchy-recipes; your local copy at "
+                              f"{path} is unused and can be deleted")
+                else:
+                    detail = (f"duplicate recipe id {recipe.id!r}; the {previous.source} recipe at "
+                              f"{previous.path} is used instead")
+                problems.append({"path": str(path), "source": source.name, "error": detail,
+                                 "superseded": previous.source == sources_mod.BUNDLED
+                                               and source.name == sources_mod.LOCAL})
                 continue
             seen[recipe.id] = recipe
             recipes.append(recipe)
@@ -301,11 +307,23 @@ def scan(root: Path) -> tuple[list[Recipe], list[dict[str, str]]]:
     return recipes, problems
 
 
+def faults(problems: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Problems that mean something is wrong.
+
+    A local copy of a recipe that now ships with the project is reported so the
+    user knows which file is being ignored, but it is not a fault: the recipe
+    works, and failing validation over it would block installs for a tidy-up
+    task nobody has to do.
+    """
+    return [p for p in problems if not p.get("superseded")]
+
+
 def discover(root: Path) -> list[Recipe]:
-    """Strict discovery: any malformed or duplicate recipe is an error."""
+    """Strict discovery: any malformed or genuinely duplicated recipe is an error."""
     recipes, problems = scan(root)
-    if problems:
-        raise RecipeError(problems[0]["error"])
+    blocking = faults(problems)
+    if blocking:
+        raise RecipeError(blocking[0]["error"])
     return recipes
 
 

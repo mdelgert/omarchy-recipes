@@ -74,6 +74,21 @@ Item {
   property bool loadingDetail: false
   property bool checking: false
   property bool busy: false          // an apply or undo is in flight
+  property string busyAction: ""     // "apply" or "undo", for the progress line
+  // Seconds the current apply or undo has been running. A recipe can take as
+  // long as it likes, and a disabled button says nothing about whether it is
+  // still working.
+  property int runSeconds: 0
+
+  Timer {
+    id: runTicker
+    interval: 1000
+    repeat: true
+    running: engine.busy
+    onTriggered: engine.runSeconds += 1
+  }
+
+  onBusyChanged: if (busy) runSeconds = 0
   property string engineError: ""    // failure to reach or understand the engine
 
   readonly property bool available: runnerResolved && runnerPath !== ""
@@ -362,6 +377,7 @@ Item {
   function apply(values) {
     if (!selectedId || busy) return
     busy = true
+    busyAction = "apply"
     lastAction = null
     actionProc.action = "apply"
     actionProc.command = argv(["run", "--json", selectedId]
@@ -372,6 +388,7 @@ Item {
   function undo() {
     if (!selectedId || busy) return
     busy = true
+    busyAction = "undo"
     lastAction = null
     actionProc.action = "undo"
     actionProc.command = argv(["undo", "--json", selectedId])
