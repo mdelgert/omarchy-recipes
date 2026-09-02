@@ -48,6 +48,11 @@ Item {
   property int candidateIndex: -1
   property string runnerPath: ""
   property bool runnerResolved: false
+  // A recipe asked for before the runner was resolved. Resolution is an async
+  // file probe, so opening the menu straight to a recipe — from a keybinding
+  // payload, say — arrives first and would otherwise run `info` with an empty
+  // command and never report anything.
+  property string pendingSelectId: ""
 
   // ---- observable state ---------------------------------------------------
 
@@ -154,7 +159,7 @@ Item {
     // report the failure, so the message names a command the user can run.
     runnerPath = "omarchy-recipes"
     runnerResolved = true
-    reload()
+    flushPending()
   }
 
   // Existence probe rather than a trial execution: resolving which runner to
@@ -169,7 +174,7 @@ Item {
     onLoaded: {
       engine.runnerPath = path
       engine.runnerResolved = true
-      engine.reload()
+      engine.flushPending()
     }
     onLoadFailed: Qt.callLater(engine.tryNextCandidate)
   }
@@ -251,9 +256,20 @@ Item {
     lastAction = null
     logText = ""
     if (!selectedId) return
+    if (!runnerResolved) {
+      pendingSelectId = selectedId
+      return
+    }
+    pendingSelectId = ""
     loadingDetail = true
     infoProc.command = argv(["info", "--json", selectedId])
     infoProc.running = true
+  }
+
+  // Run once the runner is known, for whatever arrived too early.
+  function flushPending() {
+    reload()
+    if (pendingSelectId) select(pendingSelectId)
   }
 
   Process {
@@ -531,6 +547,8 @@ Item {
 
   property bool contributing: false
   property var contributePlan: null
+  property bool submittingPr: false
+  property string pullRequestUrl: ""
 
   // Always a dry run from the UI. Offering a recipe upstream is a pull request
   // someone will read; the plugin shows what would be sent and stops there.
@@ -539,8 +557,37 @@ Item {
     contributing = true
     contributePlan = null
     authoringError = ""
+    pullRequestUrl = ""
     contributeProc.command = argv(["contribute", "--json", String(recipeId)])
     contributeProc.running = true
+  }
+
+  // The real submission. Confirmed by the preview the user has just read.
+  function openPullRequest(recipeId) {
+    if (submittingPr || !recipeId) return
+    submittingPr = true
+    authoringError = ""
+    prProc.command = argv(["contribute", "--json", "--push", String(recipeId)])
+    prProc.running = true
+  }
+
+  Process {
+    id: prProc
+    stdout: StdioCollector { id: prOut; waitForEnd: true }
+    stderr: StdioCollector { id: prErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      engine.submittingPr = false
+      var parsed = Model.parseResponse(prOut.text, engine.schemaVersion)
+      if (!parsed.ok) {
+        engine.authoringError = engine.describeFailure(parsed.error, exitCode, prErr.text)
+        return
+      }
+      engine.contributePlan = parsed.data
+      engine.pullRequestUrl = String(parsed.data.pull_request_url || "")
+      if (!engine.pullRequestUrl && parsed.data.reason)
+        engine.authoringError = String(parsed.data.reason)
+          + (parsed.data.hint ? " — " + String(parsed.data.hint) : "")
+    }
   }
 
   Process {

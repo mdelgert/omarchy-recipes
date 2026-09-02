@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,8 @@ from . import sources as sources_mod
 from .core import RecipeError, get_recipe, scan
 
 PROTECTED_BRANCHES = {"main", "master"}
+CLONE_TIMEOUT = 120
+GH_TIMEOUT = 60
 BRANCH_PREFIX = "recipe/"
 GIT_TIMEOUT = 30
 
@@ -36,6 +39,24 @@ def _git(root: Path, *args: str) -> tuple[bool, str, str]:
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, "", str(e)
     return proc.returncode == 0, proc.stdout.strip(), proc.stderr.strip()
+
+
+def _gh(cwd: Path, *args: str, timeout: int = GH_TIMEOUT) -> tuple[bool, str, str]:
+    try:
+        proc = subprocess.run(
+            ["gh", *args], cwd=str(cwd), text=True, capture_output=True,
+            check=False, timeout=timeout,
+        )
+    except FileNotFoundError:
+        return False, "", "the GitHub CLI (gh) is not installed"
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, "", str(e)
+    return proc.returncode == 0, proc.stdout.strip(), proc.stderr.strip()
+
+
+def remote_url(root: Path) -> str:
+    ok, out, _err = _git(root, "remote", "get-url", "origin")
+    return out.strip() if ok else ""
 
 
 def branch_name(recipe_id: str) -> str:
@@ -148,6 +169,92 @@ def prepare(root: Path, recipe_id: str, *, testing: str = "") -> dict[str, Any]:
         "ready": not blockers,
         "requires_user_decision": bool(duplicates),
     }
+
+
+def open_pull_request(root: Path, recipe_id: str, *, testing: str = "") -> dict[str, Any]:
+    """Branch, commit, push, and open the pull request.
+
+    All of it happens in a throwaway clone rather than in the checkout the
+    plugin is running from. Contributing a recipe must not leave the installed
+    plugin sitting on a `recipe/...` branch with an extra commit — that is the
+    sort of side effect that turns "I offered a recipe upstream" into "why is
+    my plugin update failing".
+    """
+    plan = prepare(root, recipe_id, testing=testing)
+    if not plan["ready"]:
+        return {**plan, "submitted": False, "reason": "; ".join(plan["blockers"])}
+
+    ok, _out, err = _gh(root, "auth", "status")
+    if not ok:
+        return {**plan, "submitted": False,
+                "reason": f"GitHub CLI is not ready: {err or 'run `gh auth login`'}"}
+
+    url = remote_url(root)
+    if not url:
+        return {**plan, "submitted": False, "reason": "could not determine the upstream repository"}
+
+    recipe = get_recipe(root, recipe_id)
+    source = Path(recipe.path)
+    branch = plan["branch"]
+
+    with tempfile.TemporaryDirectory(prefix="omarchy-recipes-contrib-") as tmp:
+        work = Path(tmp) / "repo"
+        try:
+            proc = subprocess.run(["git", "clone", "--quiet", url, str(work)],
+                                  text=True, capture_output=True, check=False, timeout=CLONE_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return {**plan, "submitted": False, "reason": f"could not clone {url}: {e}"}
+        if proc.returncode != 0:
+            return {**plan, "submitted": False,
+                    "reason": f"could not clone {url}: {proc.stderr.strip().splitlines()[:1]}"}
+
+        ok, _out, err = _git(work, "checkout", "-b", branch)
+        if not ok:
+            return {**plan, "submitted": False, "reason": f"could not create branch {branch}: {err}"}
+
+        destination = work / "recipes" / "community" / f"{recipe.id}.sh"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(source.read_bytes())
+        destination.chmod(0o755)
+
+        ok, _out, err = _git(work, "add", str(destination.relative_to(work)))
+        if not ok:
+            return {**plan, "submitted": False, "reason": f"could not stage the recipe: {err}"}
+
+        ok, _out, err = _git(work, "commit", "-m", f"Add recipe: {recipe.title}")
+        if not ok:
+            return {**plan, "submitted": False, "reason": f"could not commit: {err}"}
+
+        ok, _out, err = _git(work, "push", "-u", "origin", branch)
+        if not ok:
+            # No write access is the ordinary case for a contributor, and it
+            # needs a fork rather than a retry. Say which it is.
+            hint = ("you do not have push access; fork it first with "
+                    "`gh repo fork --remote`, then contribute from that fork")
+            return {**plan, "submitted": False,
+                    "reason": f"could not push {branch}: {err}", "hint": hint}
+
+        base = "main"
+        ok, out, _err = _gh(work, "repo", "view", "--json", "defaultBranchRef",
+                            "-q", ".defaultBranchRef.name")
+        if ok and out.strip():
+            base = out.strip()
+
+        ok, out, err = _gh(work, "pr", "create", "--base", base, "--head", branch,
+                           "--title", plan["pull_request_title"], "--body", plan["pull_request_body"])
+        if not ok:
+            return {**plan, "submitted": True, "pushed": True, "pull_request_url": "",
+                    "branch": branch,
+                    "reason": f"branch pushed, but the pull request could not be opened: {err}"}
+
+        link = ""
+        for line in out.splitlines():
+            if line.strip().startswith("http"):
+                link = line.strip()
+                break
+
+    return {**plan, "submitted": True, "pushed": True, "branch": branch,
+            "base": base, "pull_request_url": link}
 
 
 def submit(

@@ -152,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     bp2.add_argument("--json", action="store_true")
     bp2.add_argument("--testing", default="", help="how the recipe was tested; goes in the pull request body")
     bp2.add_argument("--commit", action="store_true", help="actually branch and commit (default is a dry run)")
-    bp2.add_argument("--push", action="store_true", help="push the branch and open a pull request")
+    bp2.add_argument("--push", action="store_true", help="push the branch and open the pull request")
     return p
 
 
@@ -385,10 +385,14 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if report["ok"] else 2
 
         if args.command == "contribute":
-            result = contribution.submit(
-                root, args.recipe_id, testing=args.testing,
-                dry_run=not (args.commit or args.push), push=args.push,
-            )
+            if args.push:
+                # The real thing: clone, branch, commit, push, open the PR.
+                result = contribution.open_pull_request(root, args.recipe_id, testing=args.testing)
+            else:
+                result = contribution.submit(
+                    root, args.recipe_id, testing=args.testing,
+                    dry_run=not args.commit, push=False,
+                )
             if args.json:
                 emit(result)
             else:
@@ -399,8 +403,14 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"possible duplicate: {duplicate['id']} ({duplicate['title']})", file=sys.stderr)
                 for step in result.get("steps", []):
                     print(f"{'would run' if result.get('dry_run') else 'ran'}: {step}")
-                if result.get("submitted"):
+                if result.get("pull_request_url"):
+                    print(result["pull_request_url"])
+                elif result.get("submitted"):
                     print(f"committed on {result['branch']}")
+                if result.get("reason") and not result.get("submitted"):
+                    print(result["reason"], file=sys.stderr)
+                if result.get("hint"):
+                    print(result["hint"], file=sys.stderr)
             return 0 if (result.get("submitted") or result.get("dry_run")) else 2
 
         if args.command == "create":
