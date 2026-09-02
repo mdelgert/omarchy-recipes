@@ -5,7 +5,9 @@ QT_BIN ?= /usr/lib/qt6/bin
 # The Omarchy shell exports `qs.*` from its own tree; qmllint needs a directory
 # where that tree is reachable as `qs`.
 OMARCHY_PATH ?= /usr/share/omarchy
-QML_IMPORTS := .qml-imports
+# Built outside the repository on purpose: Omarchy refuses a plugin folder that
+# contains a symlink, and this tree must stay directly installable.
+QML_IMPORTS := $(shell mktemp -d -u /tmp/omarchy-recipes-qml.XXXXXX 2>/dev/null || echo /tmp/omarchy-recipes-qml)
 
 test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
