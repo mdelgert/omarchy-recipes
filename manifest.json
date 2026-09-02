@@ -6,10 +6,13 @@
   "author": "Matthew David Elgert",
   "license": "MIT",
   "description": "Browse and run self-describing, reversible workstation recipes.",
-  "kinds": ["menu", "bar-widget"],
+  "kinds": [
+    "menu",
+    "bar-widget"
+  ],
   "entryPoints": {
-    "menu": "Menu.qml",
-    "barWidget": "BarWidget.qml"
+    "menu": "omarchy-plugin/Menu.qml",
+    "barWidget": "omarchy-plugin/BarWidget.qml"
   },
   "barWidget": {
     "displayName": "Recipes",

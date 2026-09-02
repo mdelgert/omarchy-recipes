@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 # Install this working tree as an Omarchy plugin and reload the shell.
 #
-# The shell only discovers plugins exactly one level under
-# ~/.config/omarchy/plugins/, and it refuses a plugin folder containing
-# symlinks, so a repository kept elsewhere has to be copied in. The copy is
-# self-contained: the QML frontend, the Python engine, the Bash helper library,
-# and the recipe tree all land together, so Menu.qml finds the runner at
-# <plugin>/bin/omarchy-recipes without anything on $PATH.
+# For a normal install, prefer:
 #
-# Re-run after editing the repository. Set OMARCHY_RECIPES_BIN to point the
-# plugin at a different runner instead (useful while iterating on the engine).
+#   omarchy plugin add https://github.com/mdelgert/omarchy-recipes.git --enable
+#
+# which clones the repository straight into the plugins directory. This script
+# is the development equivalent: it copies the working tree, uncommitted changes
+# and all, so you can iterate without pushing.
+#
+# The copy mirrors the repository exactly rather than rearranging it, so a
+# plugin installed from git and one installed from here are the same layout and
+# share the one `manifest.json` at the repository root. `.git` is excluded
+# because the shell never loads it and it is large.
+#
+# Re-run after editing. Set OMARCHY_RECIPES_BIN to point the plugin at a
+# different runner instead, when iterating on the engine alone.
 set -Eeuo pipefail
 
 PLUGIN_ID=io.github.mdelgert.omarchy-recipes
@@ -18,17 +24,13 @@ DEST="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/$PLUGIN_ID"
 
 mkdir -p "$DEST"
 
-# The plugin's own files sit at the plugin root; the engine keeps its
-# repository-relative layout underneath so `bin/omarchy-recipes` still finds
-# `src/`, `lib/`, `recipes/`, and `skills/` exactly as it does in a checkout.
-rsync -a --delete --exclude 'install.sh' "$SRC/omarchy-plugin/" "$DEST/"
-rsync -a --delete "$SRC/bin/" "$DEST/bin/"
-rsync -a --delete "$SRC/src/" "$DEST/src/"
-rsync -a --delete "$SRC/lib/" "$DEST/lib/"
-rsync -a --delete "$SRC/recipes/" "$DEST/recipes/"
-# The authoring agent reads the skill from the engine root at run time, so the
-# rules have to travel with the plugin rather than staying in the checkout.
-rsync -a --delete "$SRC/skills/" "$DEST/skills/"
+rsync -a --delete \
+  --exclude '.git/' \
+  --exclude '.github/' \
+  --exclude '.qml-imports/' \
+  --exclude '__pycache__/' \
+  --exclude '*.pyc' \
+  "$SRC/" "$DEST/"
 
 printf 'installed %s -> %s\n' "$PLUGIN_ID" "$DEST"
 
@@ -54,6 +56,9 @@ fi
 cat <<EOF
 
 Enable and open it with:
-  omarchy plugin enable $PLUGIN_ID
+  omarchy plugin enable $PLUGIN_ID right
   omarchy-shell shell toggle $PLUGIN_ID '{}'
+
+Note: a menu plugin's QML is cached by the shell. After changing QML, run
+  omarchy-restart-shell
 EOF
