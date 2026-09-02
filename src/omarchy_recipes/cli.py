@@ -4,9 +4,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from . import agent as agent_mod, authoring, conflicts as conflicts_mod, contribution, inspection, lint as lint_mod, sources as sources_mod
+from . import agent as agent_mod, authoring, config as config_mod, conflicts as conflicts_mod, contribution, inspection, lint as lint_mod, sources as sources_mod
 from .core import (
     SCHEMA_VERSION,
     faults,
@@ -154,6 +154,20 @@ def build_parser() -> argparse.ArgumentParser:
     bp2.add_argument("--testing", default="", help="how the recipe was tested; goes in the pull request body")
     bp2.add_argument("--commit", action="store_true", help="actually branch and commit (default is a dry run)")
     bp2.add_argument("--push", action="store_true", help="push the branch and open the pull request")
+
+    cfgp = sub.add_parser("config", help="manage persistent settings for agent provider/model")
+    cfgsub = cfgp.add_subparsers(dest="config_command", required=True)
+
+    cfgg = cfgsub.add_parser("get", help="read a config value")
+    cfgg.add_argument("key")
+
+    cfgs = cfgsub.add_parser("set", help="write a config value")
+    cfgs.add_argument("key")
+    cfgs.add_argument("value")
+
+    cfgsh = cfgsub.add_parser("show", help="display the entire config")
+    cfgsh.add_argument("--json", action="store_true")
+
     return p
 
 
@@ -393,6 +407,42 @@ def main(argv: list[str] | None = None) -> int:
                     for finding in report["findings"]:
                         print(f"{finding['severity']:7} {finding['rule']:22} {finding['message']}", file=sys.stderr)
                 return 0 if report["ok"] else 2
+
+        if args.command == "config":
+            if args.config_command == "get":
+                try:
+                    value = config_mod.get(args.key)
+                    print(json.dumps(value) if value is not None else "null")
+                except RecipeError as e:
+                    print(f"error: {e}", file=sys.stderr)
+                    return 2
+                return 0
+
+            if args.config_command == "set":
+                try:
+                    value: Any
+                    # Try to parse as JSON for common types (true/false/null/numbers)
+                    if args.value.lower() in ("true", "false", "null"):
+                        value = json.loads(args.value)
+                    else:
+                        try:
+                            value = json.loads(args.value)
+                        except ValueError:
+                            value = args.value
+                    config_mod.set_value(args.key, value)
+                    print(f"set {args.key} = {json.dumps(value)}")
+                except RecipeError as e:
+                    print(f"error: {e}", file=sys.stderr)
+                    return 2
+                return 0
+
+            if args.config_command == "show":
+                data = config_mod.load()
+                if args.json:
+                    emit({"config": data})
+                else:
+                    print(json.dumps(data, indent=2))
+                return 0
 
         if args.command == "contribute":
             if args.push:

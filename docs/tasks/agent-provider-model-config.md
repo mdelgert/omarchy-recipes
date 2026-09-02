@@ -124,4 +124,77 @@ omarchy-recipes config set agent.provider bogus  # should fail, not write
 
 ## Report
 
-(fill in when done)
+### Completed Implementation
+
+**1. Copilot provider adapter** (✓)
+   - Added `_copilot_argv()` function that builds command line for copilot
+   - Uses `-p` flag for non-interactive mode
+   - Sets `--output-format json` for machine-readable output
+   - Uses `--deny-tool` to restrict tool access (same as Claude)
+   - Added to `PROVIDER_ARGV` registry
+   - Handles JSONL output format by extracting assistant message
+   - `copilot providers --json` reports copilot when installed
+
+**2. Config file and storage** (✓)
+   - New `config.py` module implementing persistent config storage
+   - Config file at `~/.config/omarchy-recipes/config.json` (respects `OMARCHY_RECIPES_HOME`)
+   - Minimal schema with `agent.provider` and `agent.models.<provider>`
+   - No secrets stored (documented in module docstring)
+   - Defaults provided for missing keys
+
+**3. Resolution order** (✓)
+   - `default_provider()` checks: env var (`OMARCHY_RECIPES_AGENT`) > config file > first installed provider
+   - `resolve_model()` checks: config for the provider > None (provider picks)
+   - `complete()` uses resolved model as fallback when not explicitly specified
+
+**4. CLI commands** (✓)
+   - `omarchy-recipes config get <key>` - read a value
+   - `omarchy-recipes config set <key> <value>` - write a value with validation
+   - `omarchy-recipes config show [--json]` - display entire config
+   - Rejects unknown keys with clear error messages
+   - Rejects unknown provider names with list of valid providers
+   - Returns non-zero exit code on errors
+
+**5. No secrets** (✓)
+   - Config schema only contains provider name and model string
+   - Module docstring explicitly documents this as non-secret storage
+   - No authentication/token fields in schema
+
+**6. Test isolation** (✓)
+   - `config_path()` computes fresh each call to respect `OMARCHY_RECIPES_HOME`
+   - All config operations use deepcopy to avoid mutable default pollution
+   - Tests in `test_config.py` (12 tests) and `test_agent_providers.py` (10 tests)
+   - Tests clear modules in setUp to respect environment changes
+   - All tests pass and don't touch user's real config
+
+**7. Validation** (✓)
+   - `make check` passes (97 Python tests + 21 QML tests + validation)
+   - `make validate` passes (7 recipes validated)
+
+**8. Documentation** (—)
+   - No changes to `docs/RECIPE_SPEC.md` or `docs/ARCHITECTURE.md` needed
+   - The `agent providers --json` output was already reporting `default` provider
+   - Config file is user-facing (documented via `--help`)
+
+### Testing Evidence
+
+Manual testing performed:
+```bash
+omarchy-recipes agent providers           # ✓ copilot listed
+omarchy-recipes config set agent.provider copilot  # ✓ saved
+omarchy-recipes config get agent.provider  # ✓ returns "copilot"
+omarchy-recipes config set agent.models.claude claude-opus-4  # ✓ saved
+omarchy-recipes config show --json        # ✓ valid JSON
+omarchy-recipes config set agent.provider bogus  # ✓ error + exit 2
+make check                                # ✓ all 97 Python + 21 QML tests pass
+```
+
+### Files Created/Modified
+
+- **New:** `src/omarchy_recipes/config.py` - config management module
+- **New:** `tests/test_config.py` - config tests (12 tests)
+- **New:** `tests/test_agent_providers.py` - provider resolution tests (10 tests)
+- **Modified:** `src/omarchy_recipes/agent.py` - added copilot adapter, model resolution
+- **Modified:** `src/omarchy_recipes/cli.py` - added config subcommands
+
+All acceptance criteria met.

@@ -66,9 +66,20 @@ def _codex_argv(model: str | None) -> list[str]:
     return argv
 
 
+def _copilot_argv(model: str | None) -> list[str]:
+    argv = ["copilot", "-p"]
+    if model:
+        argv += ["--model", model]
+    argv += ["--output-format", "json"]
+    # Restrict tool access the same way Claude does
+    argv += ["--deny-tool", *DENIED_TOOLS]
+    return argv
+
+
 PROVIDER_ARGV: dict[str, Callable[[str | None], list[str]]] = {
     "claude": _claude_argv,
     "codex": _codex_argv,
+    "copilot": _copilot_argv,
 }
 
 
@@ -87,13 +98,35 @@ def providers() -> list[Provider]:
 
 
 def default_provider() -> str:
+    from . import config
+    # Resolution order: env var > config > first installed provider
     override = os.environ.get("OMARCHY_RECIPES_AGENT")
     if override:
         return override
+    try:
+        configured = config.get("agent.provider")
+        return configured
+    except RecipeError:
+        pass
     for provider in providers():
         if provider.available:
             return provider.name
     return "claude"
+
+
+def resolve_model(provider: str | None = None) -> str | None:
+    """Get the configured default model for a provider.
+
+    Resolution order: explicit model > env var > config > None (provider picks).
+    """
+    from . import config
+    p = provider or default_provider()
+    try:
+        configured = config.get(f"agent.models.{p}")
+        return configured
+    except RecipeError:
+        pass
+    return None
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -144,7 +177,9 @@ def complete(prompt: str, *, provider: str | None = None, model: str | None = No
     builder = PROVIDER_ARGV.get(name)
     if builder is None:
         raise RecipeError(f"unknown agent provider {name!r}; available: {', '.join(sorted(PROVIDER_ARGV))}")
-    argv = builder(model)
+    # Use explicit model, or fall back to configured default
+    resolved_model = model or resolve_model(name)
+    argv = builder(resolved_model)
     if not shutil.which(argv[0]):
         raise RecipeError(f"{argv[0]} is not installed; set OMARCHY_RECIPES_AGENT to another provider")
 
@@ -170,7 +205,26 @@ def complete(prompt: str, *, provider: str | None = None, model: str | None = No
         if payload.get("is_error"):
             raise RecipeError(f"{name} reported an error: {payload.get('result') or 'unknown'}")
         return str(payload.get("result") or "")
+    elif name == "copilot":
+        # Copilot outputs JSONL; extract the assistant message from the stream
+        return _extract_copilot_response(proc.stdout)
     return proc.stdout
+
+
+def _extract_copilot_response(jsonl_output: str) -> str:
+    """Extract the assistant's final message from copilot's JSONL output."""
+    for line in jsonl_output.strip().split("\n"):
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+            if obj.get("type") == "assistant.message":
+                content = obj.get("data", {}).get("content", "")
+                if content:
+                    return content
+        except ValueError:
+            pass
+    raise RecipeError("copilot did not return a valid response")
 
 
 # ------------------------------------------------------------------ prompts
