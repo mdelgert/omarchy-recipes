@@ -5,6 +5,25 @@ recipe_note() { printf '%s\n' "$*"; }
 recipe_warn() { printf 'warning: %s\n' "$*" >&2; }
 recipe_die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# Report the state `check` found, so frontends read a value instead of
+# guessing from prose. The engine strips these marker lines out of the text it
+# hands a UI for display; the raw stream still lands in the run log.
+#
+#   recipe_state configured "mode=balanced"
+#
+# States: configured | not-configured | partial | unsupported | unknown
+recipe_state() {
+  printf '@recipe.state %s\n' "$1"
+  if (($# > 1)); then
+    shift
+    recipe_summary "$@"
+  fi
+}
+
+# One-line human summary of the current or resulting state. Safe to call from
+# check, apply, and undo.
+recipe_summary() { printf '@recipe.summary %s\n' "$*"; }
+
 recipe_require_runtime() {
   : "${OMARCHY_RECIPES_RUN_DIR:?recipe must be executed by omarchy-recipes}"
   : "${OMARCHY_RECIPES_BACKUP_DIR:?missing backup directory}"
