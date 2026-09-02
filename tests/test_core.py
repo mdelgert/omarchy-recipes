@@ -10,6 +10,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class CoreTests(unittest.TestCase):
+    """Discovery now walks the user's own collections as well as the bundled
+    tree, so these have to redirect the workspace. Without it the suite passes
+    or fails depending on what the developer happens to have authored locally —
+    which is exactly how this started failing."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved = os.environ.get("OMARCHY_RECIPES_HOME")
+        os.environ["OMARCHY_RECIPES_HOME"] = self._tmp.name
+
+    def tearDown(self):
+        if self._saved is None:
+            os.environ.pop("OMARCHY_RECIPES_HOME", None)
+        else:
+            os.environ["OMARCHY_RECIPES_HOME"] = self._saved
+        self._tmp.cleanup()
+
     def test_discovers_example(self):
         recipes = discover(ROOT)
         ids = [r.id for r in recipes]

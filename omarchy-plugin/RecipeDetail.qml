@@ -393,6 +393,57 @@ FocusScope {
         }
       }
 
+      // ---- while it runs ---------------------------------------------------
+      //
+      // A recipe may legitimately take minutes. Without an elapsed count and
+      // something moving, a disabled Apply button is indistinguishable from a
+      // hang — and output is only captured, so nothing else appears until it
+      // finishes.
+      // No explicit width on the Row: sizing it from the parent while a child
+      // sizes itself from the Row is a loop, and the row collapses to nothing.
+      Row {
+        spacing: Style.spacing.controlGap
+        visible: root.engine.busy
+
+        Text {
+          id: runSpinner
+          textFormat: Text.PlainText
+          property int frame: 0
+          readonly property string frames: "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+          text: frames.charAt(frame)
+          color: root.accent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+
+          Timer {
+            interval: 90
+            repeat: true
+            running: root.engine.busy
+            onTriggered: runSpinner.frame = (runSpinner.frame + 1) % runSpinner.frames.length
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          text: (root.engine.busyAction === "undo" ? "Undoing" : "Applying")
+                + " — " + root.engine.runSeconds + "s"
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+      }
+
+      Text {
+        textFormat: Text.PlainText
+        width: parent.width
+        wrapMode: Text.WordWrap
+        visible: root.engine.busy
+        text: "The recipe is running. Its output appears when it finishes."
+        color: Qt.darker(root.foreground, 1.5)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
       // ---- last run -------------------------------------------------------
 
       PanelSeparator {

@@ -9,6 +9,7 @@ from typing import Any
 from . import agent as agent_mod, authoring, conflicts as conflicts_mod, contribution, inspection, lint as lint_mod, sources as sources_mod
 from .core import (
     SCHEMA_VERSION,
+    faults,
     RecipeError,
     execute,
     get_recipe,
@@ -159,6 +160,12 @@ def build_parser() -> argparse.ArgumentParser:
 def print_run_text(result_dict: dict[str, Any]) -> None:
     if result_dict["stdout"]:
         sys.stdout.write(result_dict["stdout"].rstrip("\n") + "\n")
+    # A check whose whole answer is the state marker would otherwise print
+    # nothing at all, since markers are stripped from the display text.
+    if result_dict["action"] == "check":
+        state = result_dict.get("state") or "unknown"
+        summary = result_dict.get("summary") or ""
+        print(f"{state}{': ' + summary if summary else ''}")
     if result_dict["stderr"]:
         sys.stderr.write(result_dict["stderr"])
 
@@ -251,16 +258,19 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "validate":
             recipes, problems = scan(root)
+            blocking = faults(problems)
             rows = [{"path": r.path, "id": r.id, "status": "ok"} for r in recipes]
             if args.json:
-                emit({"recipes": rows, "problems": problems, "ok": not problems})
+                emit({"recipes": rows, "problems": problems, "ok": not blocking})
             else:
                 for row in rows:
                     print(f"ok  {row['id']:28} {row['path']}")
                 for problem in problems:
-                    print(f"error: {problem['error']}", file=sys.stderr)
+                    stream = sys.stderr if problem in blocking else sys.stdout
+                    label = "error" if problem in blocking else "note"
+                    print(f"{label}: {problem['error']}", file=stream)
                 print(f"Validated {len(rows)} recipe(s)")
-            return 2 if problems else 0
+            return 2 if blocking else 0
 
         if args.command == "sources":
             rows = [s.to_dict() for s in sources_mod.sources(root)]

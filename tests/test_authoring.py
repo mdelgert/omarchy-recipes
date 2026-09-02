@@ -117,9 +117,14 @@ class SourceTests(WorkspaceTestCase):
         (local_dir / "shadow.sh").write_text(shadow)
 
         recipes, problems = scan(ROOT)
+        # The behaviour is what matters: the bundled recipe wins, the local one
+        # is not used, and the user is told which file is being ignored.
         winner = next(r for r in recipes if r.id == "example-config-value")
         self.assertEqual(winner.source, "bundled")
-        self.assertTrue(any("duplicate recipe id" in p["error"] for p in problems))
+        self.assertEqual(len([r for r in recipes if r.id == "example-config-value"]), 1)
+        reported = [p for p in problems if "example-config-value" in p["error"]]
+        self.assertTrue(reported, problems)
+        self.assertIn(str(local_dir / "shadow.sh"), reported[0]["path"])
 
 
 class AuthoringTests(WorkspaceTestCase):
