@@ -82,7 +82,6 @@ Item {
   function goBrowse() {
     view = "browse"
     recipeEngine.select("")
-    panel.holdFocus()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -95,8 +94,6 @@ Item {
   function openCreate() {
     view = "create"
     recipeEngine.select("")
-    // Take the keyboard first, then hand the rest of the desktop back.
-    panel.releaseFocusAfterPrime()
     Qt.callLater(function() { create.forceActiveFocus() })
   }
 
@@ -225,42 +222,34 @@ Item {
     WlrLayershell.namespace: "omarchy-recipes-menu"
     WlrLayershell.layer: WlrLayer.Overlay
 
-    // Keyboard focus differs by view, because the two views want opposite
-    // things from the compositor.
+    // Prime with Exclusive so the menu takes the keyboard the moment it maps,
+    // then settle on OnDemand.
     //
-    // Browsing is a pick-a-row launcher: it must own the keyboard the instant
-    // it appears, so it takes Exclusive like the built-in Omarchy menu.
+    // Exclusive alone makes Hyprland route every pointer event to this surface
+    // no matter which output the cursor is over, which locks the user out of
+    // their other monitors for as long as the menu is open. OnDemand releases
+    // that grab while still letting the surface hold keyboard focus, so you can
+    // click across to another screen, copy a prompt, and click back.
     //
-    // Create Recipe is a form. You may well want to copy a prompt out of an
-    // editor on another monitor while it is open, and Exclusive makes Hyprland
-    // route every pointer event to this surface no matter which output the
-    // cursor is over — which locks the rest of the desktop. So the authoring
-    // view primes with Exclusive to take the keyboard, then drops to OnDemand
-    // and lets you click away. Clicking the card takes the keyboard back.
+    // Same pattern as qs.Ui.KeyboardPanel, which documents the same Hyprland
+    // behaviour.
     property bool focusPrimed: false
-
-    function releaseFocusAfterPrime() {
-      panel.focusPrimed = false
-      focusPrimeTimer.restart()
-    }
-
-    function holdFocus() {
-      focusPrimeTimer.stop()
-      panel.focusPrimed = false
-    }
 
     WlrLayershell.keyboardFocus: !root.opened
       ? WlrKeyboardFocus.None
       : (panel.focusPrimed ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive)
 
-    onVisibleChanged: if (!visible) panel.holdFocus()
+    onBackingWindowVisibleChanged: {
+      panel.focusPrimed = false
+      if (backingWindowVisible && root.opened) focusPrimeTimer.restart()
+    }
 
     Timer {
       id: focusPrimeTimer
       // Long enough for a few Wayland commit cycles, short enough that the
-      // grab is never noticeable.
+      // compositor-wide grab is never noticeable.
       interval: 120
-      onTriggered: if (root.opened && root.view === "create") panel.focusPrimed = true
+      onTriggered: if (root.opened) panel.focusPrimed = true
     }
 
     // The detail view carries a generated form, run output, and history, so it
@@ -310,7 +299,7 @@ Item {
       // away to another window, and clicking the card is how they return.
       MouseArea {
         anchors.fill: parent
-        onClicked: if (root.view !== "create") keyCatcher.forceActiveFocus()
+        onClicked: if (root.view === "browse") keyCatcher.forceActiveFocus()
       }
 
       // One key handler for the whole card. Content lives inside it, and
