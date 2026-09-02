@@ -214,7 +214,39 @@ def inspect_environment() -> DomainResult:
     return DomainResult("environment", items=items)
 
 
+# Files an Omarchy user is expected to edit. Which of these exist decides where
+# a recipe should write, and it differs between Omarchy releases: a recipe that
+# appends a keybinding to `bindings.conf` on a machine using `bindings.lua`
+# writes to a file nothing reads. The agent must be told, not left to guess.
+USER_CONFIG_CANDIDATES = (
+    ("hypr-bindings", "~/.config/hypr/bindings.lua"),
+    ("hypr-bindings-legacy", "~/.config/hypr/bindings.conf"),
+    ("hypr-main", "~/.config/hypr/hyprland.lua"),
+    ("hypr-main-legacy", "~/.config/hypr/hyprland.conf"),
+    ("hypr-monitors", "~/.config/hypr/monitors.lua"),
+    ("hypr-input", "~/.config/hypr/input.lua"),
+    ("hypr-looknfeel", "~/.config/hypr/looknfeel.lua"),
+    ("hypr-autostart", "~/.config/hypr/autostart.lua"),
+    ("omarchy-menu-extension", "~/.config/omarchy/extensions/omarchy-menu.jsonc"),
+    ("omarchy-shell", "~/.config/omarchy/shell.json"),
+)
+
+
+def inspect_config_files() -> DomainResult:
+    items = []
+    for name, raw in USER_CONFIG_CANDIDATES:
+        path = Path(os.path.expanduser(raw))
+        items.append({
+            "name": name,
+            "path": str(path),
+            "exists": path.is_file(),
+            "format": "lua" if path.suffix == ".lua" else path.suffix.lstrip(".") or "text",
+        })
+    return DomainResult("config-files", items=items)
+
+
 INSPECTORS: dict[str, Callable[[], DomainResult]] = {
+    "config-files": inspect_config_files,
     "keybindings": inspect_keybindings,
     "packages": inspect_packages,
     "services": inspect_services,

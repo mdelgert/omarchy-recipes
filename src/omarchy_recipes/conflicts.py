@@ -76,6 +76,20 @@ class Snapshot:
         return self._cache[name]
 
 
+def field(resource: dict[str, Any], *names: str) -> Any:
+    """First present field, falling back to a generic `value`.
+
+    Callers are often models, which reasonably reach for `value` when the
+    schema said `path`. Returning "could not check: no path given" for a claim
+    that plainly names a path would be a checker failing, not a caller failing.
+    """
+    for name in names:
+        got = resource.get(name)
+        if got not in (None, ""):
+            return got
+    return resource.get("value")
+
+
 def expand_path(raw: str) -> Path:
     return Path(os.path.expanduser(os.path.expandvars(str(raw or "")))).resolve(strict=False)
 
@@ -94,7 +108,7 @@ def _unknown(resource: dict[str, Any], reason: str) -> Finding:
 
 
 def check_keybinding(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    combo = inspection.normalize_keybinding(resource.get("value") or resource.get("combo") or "")
+    combo = inspection.normalize_keybinding(field(resource, "value", "combo", "keybinding", "key") or "")
     if not combo:
         return _unknown(resource, "no shortcut given")
     domain = snapshot.domain("keybindings")
@@ -115,7 +129,7 @@ def check_keybinding(resource: dict[str, Any], snapshot: Snapshot, root: Path) -
 
 
 def check_file(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    raw = resource.get("path") or ""
+    raw = field(resource, "path", "target", "file") or ""
     if not raw:
         return _unknown(resource, "no path given")
     path = expand_path(raw)
@@ -135,7 +149,7 @@ def check_file(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Find
 
 
 def check_package(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    name = str(resource.get("name") or "").strip()
+    name = str(field(resource, "name", "package") or "").strip()
     if not name:
         return _unknown(resource, "no package name given")
     domain = snapshot.domain("packages")
@@ -154,7 +168,7 @@ def check_package(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> F
 
 
 def check_service(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    name = str(resource.get("name") or "").strip()
+    name = str(field(resource, "name", "service", "unit") or "").strip()
     if not name:
         return _unknown(resource, "no service name given")
     if not name.endswith(".service"):
@@ -177,7 +191,7 @@ def check_service(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> F
 
 
 def check_port(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    raw = resource.get("port")
+    raw = field(resource, "port")
     try:
         port = int(raw)
     except (TypeError, ValueError):
@@ -203,7 +217,7 @@ def check_port(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Find
 
 
 def check_mount(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    raw = resource.get("path") or resource.get("target") or ""
+    raw = field(resource, "path", "target", "mount") or ""
     if not raw:
         return _unknown(resource, "no mount point given")
     target = str(expand_path(raw))
@@ -224,7 +238,7 @@ def check_mount(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Fin
 
 
 def check_container(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    name = str(resource.get("name") or "").strip()
+    name = str(field(resource, "name", "container") or "").strip()
     if not name:
         return _unknown(resource, "no container name given")
     domain = snapshot.domain("containers")
@@ -244,7 +258,7 @@ def check_container(resource: dict[str, Any], snapshot: Snapshot, root: Path) ->
 
 
 def check_environment(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    name = str(resource.get("name") or "").strip()
+    name = str(field(resource, "name", "variable") or "").strip()
     if not name:
         return _unknown(resource, "no variable name given")
     domain = snapshot.domain("environment")
@@ -262,7 +276,7 @@ def check_environment(resource: dict[str, Any], snapshot: Snapshot, root: Path) 
 
 
 def check_config(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Finding:
-    key = str(resource.get("key") or "").strip()
+    key = str(field(resource, "key", "option", "name") or "").strip()
     if not key:
         return _unknown(resource, "no option name given")
     domain = inspection.config_option(key)
@@ -288,7 +302,7 @@ def check_recipe(resource: dict[str, Any], snapshot: Snapshot, root: Path) -> Fi
     """
     from .core import scan  # imported here to keep module import order simple
 
-    wanted_id = str(resource.get("id") or "").strip()
+    wanted_id = str(field(resource, "id", "recipe_id") or "").strip()
     keywords = [k.lower() for k in (resource.get("keywords") or []) if str(k).strip()]
     recipes, _problems = scan(root)
 

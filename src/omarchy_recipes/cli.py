@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import authoring, conflicts as conflicts_mod, contribution, inspection, lint as lint_mod, sources as sources_mod
+from . import agent as agent_mod, authoring, conflicts as conflicts_mod, contribution, inspection, lint as lint_mod, sources as sources_mod
 from .core import (
     SCHEMA_VERSION,
     RecipeError,
@@ -122,6 +122,28 @@ def build_parser() -> argparse.ArgumentParser:
     np2.add_argument("--reviewed", action="store_true", help="record that a human has reviewed this draft")
     np2.add_argument("--not-ai", dest="not_ai", action="store_true", help="record that no agent authored this draft")
     np2.add_argument("--strict", action="store_true", help="refuse to save on warnings, not just errors")
+    np2.add_argument("--body", default=None, help="recipe text as an argument, instead of on stdin")
+
+    ap2 = sub.add_parser("agent", help="AI-assisted authoring: plan a change, then draft a recipe")
+    asub = ap2.add_subparsers(dest="agent_command", required=True)
+
+    agp = asub.add_parser("providers", help="list AI providers and whether they are installed")
+    agp.add_argument("--json", action="store_true")
+
+    agl = asub.add_parser("plan", help="ask what a request would touch, and check for conflicts")
+    agl.add_argument("request")
+    agl.add_argument("--json", action="store_true")
+    agl.add_argument("--provider", default=None)
+    agl.add_argument("--model", default=None)
+    agl.add_argument("--domain", action="append", dest="domains", default=None,
+                     help="inspection domain to gather; repeatable (default: config-files, keybindings, packages, services)")
+
+    agd = asub.add_parser("draft", help="generate the recipe text; reads the plan JSON on stdin")
+    agd.add_argument("request")
+    agd.add_argument("--json", action="store_true")
+    agd.add_argument("--provider", default=None)
+    agd.add_argument("--model", default=None)
+    agd.add_argument("--plan", default=None, help="plan JSON as an argument, instead of on stdin")
 
     bp2 = sub.add_parser("contribute", help="prepare a pull request offering a local recipe upstream")
     bp2.add_argument("recipe_id")
@@ -295,6 +317,70 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{report['errors']} error(s), {report['warnings']} warning(s)")
             return 0 if report["ok"] else 2
 
+        if args.command == "agent":
+            if args.agent_command == "providers":
+                rows = [p.to_dict() for p in agent_mod.providers()]
+                if args.json:
+                    emit({"providers": rows, "default": agent_mod.default_provider()})
+                else:
+                    for row in rows:
+                        state = "available" if row["available"] else row["reason"]
+                        print(f"{row['name']:10} {state}")
+                return 0
+
+            if args.agent_command == "plan":
+                # Only the domains the request plausibly needs: a plan should
+                # not ship the machine's entire package list to a model.
+                domains = args.domains or ["config-files", "keybindings", "packages", "services"]
+                facts = {name: d.to_dict() for name, d in inspection.inspect(domains).items()}
+                plan = agent_mod.plan(args.request, root, inspection_data=facts,
+                                      provider=args.provider, model=args.model)
+                report = conflicts_mod.check(plan.get("resources") or [], root)
+                payload = {"plan": plan, "conflicts": report}
+                if args.json:
+                    emit(payload)
+                else:
+                    print(plan.get("summary") or "(no summary)")
+                    for question in plan.get("questions") or []:
+                        print(f"question: {question}")
+                    for finding in report["findings"]:
+                        print(f"{finding['status']:8} {finding['severity']:5} {finding['detail']}")
+                return 3 if report["requires_user_decision"] else 0
+
+            if args.agent_command == "draft":
+                raw = args.plan if args.plan is not None else sys.stdin.read()
+                try:
+                    payload = json.loads(raw) if raw.strip() else {}
+                except ValueError as e:
+                    raise RecipeError(f"expected the plan JSON on stdin: {e}") from e
+                plan = payload.get("plan") or payload
+                findings = (payload.get("conflicts") or {}).get("findings") or []
+                decisions = payload.get("decisions") or {}
+
+                # Refuse to draft while a blocking conflict is unresolved. The
+                # spec requires the user to decide, not the agent.
+                unresolved = [
+                    f for f in findings
+                    if f.get("severity") == conflicts_mod.BLOCK
+                    and f.get("status") == conflicts_mod.CONFLICT
+                    and not decisions.get(str((f.get("resource") or {}).get("type", "")))
+                ]
+                if unresolved:
+                    raise RecipeError(
+                        f"{len(unresolved)} blocking conflict(s) not resolved; "
+                        "supply a `decisions` object naming the chosen resolution")
+
+                text = agent_mod.draft(args.request, root, plan, findings=findings,
+                                       decisions=decisions, provider=args.provider, model=args.model)
+                report = authoring.draft_report(text)
+                if args.json:
+                    emit({"recipe_id": plan.get("recipe_id") or "", "recipe": text, "lint": report})
+                else:
+                    sys.stdout.write(text if text.endswith("\n") else text + "\n")
+                    for finding in report["findings"]:
+                        print(f"{finding['severity']:7} {finding['rule']:22} {finding['message']}", file=sys.stderr)
+                return 0 if report["ok"] else 2
+
         if args.command == "contribute":
             result = contribution.submit(
                 root, args.recipe_id, testing=args.testing,
@@ -318,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
             result = authoring.save(
                 root,
                 args.recipe_id,
-                sys.stdin.read(),
+                args.body if args.body is not None else sys.stdin.read(),
                 generated_with_ai=not args.not_ai,
                 reviewed=args.reviewed,
                 overwrite=args.overwrite,

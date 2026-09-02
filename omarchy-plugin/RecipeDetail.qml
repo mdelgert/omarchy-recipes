@@ -103,7 +103,8 @@ FocusScope {
         text: root.recipe
           ? [String(root.recipe.category || ""),
              Model.riskLabel(root.recipe.risk),
-             Model.privilegeLabel(root.recipe.privilege)].join("  ·  ")
+             Model.privilegeLabel(root.recipe.privilege),
+             Model.sourceLabel(root.recipe)].filter(function(x) { return x }).join("  ·  ")
           : ""
         color: Qt.darker(root.foreground, 1.6)
         font.family: root.fontFamily
@@ -257,6 +258,20 @@ FocusScope {
         }
 
         Button {
+          // Only a locally authored recipe can be offered upstream; a bundled
+          // one is already there.
+          text: root.engine.contributing ? "Checking…" : "Contribute…"
+          bordered: true
+          focusable: true
+          visible: !!root.recipe && String(root.recipe.source) === "local"
+          enabled: !root.engine.busy && !root.engine.contributing
+          foreground: root.foreground
+          accent: root.accent
+          fontFamily: root.fontFamily
+          onClicked: root.engine.planContribution(root.recipe ? root.recipe.id : "")
+        }
+
+        Button {
           text: "Re-check"
           bordered: true
           focusable: true
@@ -265,6 +280,83 @@ FocusScope {
           accent: root.accent
           fontFamily: root.fontFamily
           onClicked: root.refreshState()
+        }
+      }
+
+      // ---- contribution preview -------------------------------------------
+
+      PanelSeparator {
+        foreground: root.foreground
+        visible: !!root.engine.contributePlan
+      }
+
+      Column {
+        width: parent.width
+        spacing: Style.spacing.xs
+        visible: !!root.engine.contributePlan
+
+        PanelSectionHeader {
+          text: "Contribute upstream"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          wrapMode: Text.WordWrap
+          text: {
+            var p = root.engine.contributePlan
+            if (!p) return ""
+            if (p.blockers && p.blockers.length > 0) return "✗  " + p.blockers.join("; ")
+            return "✓  ready to open a pull request on branch " + String(p.branch || "")
+          }
+          color: root.engine.contributePlan && root.engine.contributePlan.ready
+            ? root.accent : Color.urgent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        Repeater {
+          model: root.engine.contributePlan && root.engine.contributePlan.duplicates
+            ? root.engine.contributePlan.duplicates : []
+          delegate: Text {
+            required property var modelData
+            textFormat: Text.PlainText
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "possible duplicate: " + String(modelData.id) + " — " + String(modelData.title)
+            color: Color.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          wrapMode: Text.WordWrap
+          text: "This is a preview. Run `omarchy-recipes contribute "
+              + (root.recipe ? String(root.recipe.id) : "<id>")
+              + " --push` in a terminal to branch, commit, and open the pull request."
+          color: Qt.darker(root.foreground, 1.6)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        Repeater {
+          model: root.engine.contributePlan && root.engine.contributePlan.steps
+            ? root.engine.contributePlan.steps : []
+          delegate: Text {
+            required property var modelData
+            textFormat: Text.PlainText
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "· " + String(modelData)
+            color: Qt.darker(root.foreground, 1.5)
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
         }
       }
 

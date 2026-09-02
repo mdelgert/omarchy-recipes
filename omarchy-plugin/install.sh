@@ -20,12 +20,15 @@ mkdir -p "$DEST"
 
 # The plugin's own files sit at the plugin root; the engine keeps its
 # repository-relative layout underneath so `bin/omarchy-recipes` still finds
-# `src/`, `lib/`, and `recipes/` exactly as it does in a checkout.
+# `src/`, `lib/`, `recipes/`, and `skills/` exactly as it does in a checkout.
 rsync -a --delete --exclude 'install.sh' "$SRC/omarchy-plugin/" "$DEST/"
 rsync -a --delete "$SRC/bin/" "$DEST/bin/"
 rsync -a --delete "$SRC/src/" "$DEST/src/"
 rsync -a --delete "$SRC/lib/" "$DEST/lib/"
 rsync -a --delete "$SRC/recipes/" "$DEST/recipes/"
+# The authoring agent reads the skill from the engine root at run time, so the
+# rules have to travel with the plugin rather than staying in the checkout.
+rsync -a --delete "$SRC/skills/" "$DEST/skills/"
 
 printf 'installed %s -> %s\n' "$PLUGIN_ID" "$DEST"
 

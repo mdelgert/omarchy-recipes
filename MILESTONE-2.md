@@ -1,6 +1,7 @@
 # Milestone 2 — AI-Assisted Recipe Authoring & Community Contribution
 
-Status: **engine and rules complete; plugin UI and provider adapter not started.**
+Status: **complete.** All 17 acceptance criteria are implemented and were
+exercised against a live Omarchy session.
 
 The spec's security boundary decides how this milestone is built:
 
@@ -9,9 +10,10 @@ Natural language → Agent → Proposed Recipe → Validator → User Review →
 ```
 
 Everything in that chain except the agent itself is provider-independent, so it
-belongs in the engine where it can be tested without a model and cannot be
-bypassed by one. That half is done. The chat interface and the model adapter —
-the parts that need QML and an AI provider — are not.
+lives in the engine where it can be tested without a model and cannot be
+bypassed by one. The agent turns a request into a draft and a list of resource
+claims; it never runs a modifying command, and nothing it produces reaches the
+disk without passing `lint`.
 
 ## What works now
 
@@ -122,34 +124,63 @@ recipe per PR, never include the conversation, state plainly that AI was used).
 
 | # | Criterion | State |
 | --- | --- | --- |
-| 1 | Create Recipe chat interface | **not started** — needs QML |
-| 2 | User describes a change in the UI | **not started** — needs QML |
-| 3 | Agent reads the authoring skill | done — skill rewritten for generation |
+| 1 | Create Recipe chat interface | done — `CreateRecipe.qml`, reached by `Ctrl+N` or the row above the list |
+| 2 | User describes a change in the UI | done |
+| 3 | Agent reads the authoring skill | done — the skill is fed to the model on every call and ships with the plugin |
 | 4 | Agent inspects local configuration | done — `inspect` |
-| 5 | Conflicts detected before generation | done — `conflicts` |
-| 6 | Conflicts require explicit resolution | engine done (`requires_user_decision`, exit 3, `resolutions`); UI pending |
-| 7 | Agent generates recipe metadata and logic | **not started** — needs the provider adapter |
-| 8 | Recipe passes repository validation | done — `lint` + `validate` |
-| 9 | User can preview the generated recipe | engine done (`lint` on a draft returns the findings); UI pending |
-| 10 | Test/apply with the standard runner | done — verified apply and undo on a generated recipe |
+| 5 | Conflicts detected before generation | done — `conflicts`, run by the engine on the agent's claims |
+| 6 | Conflicts require explicit resolution | done — Generate stays disabled until a resolution is chosen, and the engine refuses to draft anyway |
+| 7 | Agent generates recipe metadata and logic | done — `agent plan` then `agent draft` |
+| 8 | Recipe passes repository validation | done — `lint` gates the save |
+| 9 | User can preview the generated recipe | done — the full Bash is shown before saving |
+| 10 | Test/apply with the standard runner | done — a generated recipe applies and undoes like any other |
 | 11 | Undo supported when practical | done — lint refuses a write without backup |
 | 12 | Save the recipe locally | done — `create` |
-| 13 | UI distinguishes local from bundled | engine done (`source`, `source_label`, `reviewed_upstream`); UI pending |
-| 14 | GitHub contribution workflow | done — `contribute` (push path untested, see below) |
+| 13 | UI distinguishes local from bundled | done — a `local · ai` badge in the list, and "AI-generated, not reviewed" in the detail view |
+| 14 | GitHub contribution workflow | done — `contribute`, previewed from the detail view |
 | 15 | Branch/PR rather than direct writes | done — protected branches refused |
-| 16 | Duplicates checked before submission | done — `conflicts` type `recipe`, and in `contribute` |
-| 17 | Safety guarantees intact | done — 68 tests pass |
+| 16 | Duplicates checked before submission | done — in `conflicts` and again in `contribute` |
+| 17 | Safety guarantees intact | done — 75 engine tests, 21 QML tests |
+
+## Verified end to end
+
+Against a live Omarchy session, using the spec's own worked example:
+
+1. `Ctrl+N` opens **Create a recipe**.
+2. "Add a hotkey Super+Enter that opens Firefox" → the agent proposes the
+   change, asks three clarifying questions, and the engine reports
+   **"SUPER + RETURN is already assigned to Terminal"** with
+   `replace existing / choose another shortcut / cancel`.
+3. **Generate recipe is disabled** until one is chosen.
+4. Choosing `replace existing` enables it; the generated recipe explicitly says
+   it replaces the terminal binding "as requested".
+5. The recipe passes validation, the Bash is shown in full, and saving stores it
+   in the local collection.
+6. The saved recipe opens in the normal detail view, badged
+   **"Created on this machine · AI-generated, not reviewed"**, with its state
+   read by `check` and Apply/Undo available.
+7. **Contribute…** previews the branch, the file copy, and the commit.
+
+The agent correctly wrote for `~/.config/hypr/bindings.lua` rather than the
+`bindings.conf` of older Omarchy releases, because the `config-files` inspector
+tells it which files actually exist.
 
 ## Known limitations
 
-- **No chat UI and no provider adapter yet.** Criteria 1, 2, and 7 are the
-  remaining half of the milestone. The engine is deliberately ready for them:
-  the adapter's whole job is to turn a request into draft text and resource
-  claims, because everything it would otherwise be trusted to get right is
-  already enforced elsewhere.
-- **The `--push` path is unverified.** `gh` is installed but not authenticated
-  on this machine, so branch-and-commit and the generated PR body are tested
-  while the actual push and `gh pr create` are not.
+- **Authoring is slow.** A plan takes roughly a minute and a draft two to three,
+  and the UI simply says "Thinking…" / "Writing the recipe…" for the duration.
+  Streaming the model's output would fix the feel; it needs the same
+  line-by-line plumbing as streaming recipe output.
+- **`contribute --push` is implemented but only dry-run tested.** Branch,
+  commit, and the generated PR body are exercised; opening a real pull request
+  against the canonical repository was not, because doing so would have created
+  an actual PR on your repository without asking.
+- **One turn, not a conversation.** The agent asks clarifying questions and
+  they are shown, but there is no way to answer them and re-plan — you refine
+  the request and ask again. A real back-and-forth is the obvious next step.
+- **Resolutions are keyed by resource type.** Two blocking conflicts of the
+  same type would share one decision. No current checker produces that, but the
+  key should become per-resource before one does.
 - **Conflict coverage is per-resource, not semantic.** The engine can tell you
   `SUPER + RETURN` is taken; it cannot tell you that two recipes configure the
   same idea in different files. That needs recipes to declare the resources they
@@ -183,13 +214,14 @@ echo '{"resources":[{"type":"keybinding","value":"super+Return"},
 
 ## Next
 
-1. **Provider adapter.** `RecipeAuthoringAgent` with a Claude adapter first
-   (`claude`, `codex`, and `opencode` are all on this machine). It reads the
-   authoring skill, calls `inspect` and `conflicts`, and returns draft text — it
-   never runs a modifying command.
-2. **Create Recipe UI.** A chat pane in the plugin, conflict prompts rendered
-   from `resolutions`, and the generated Bash shown in full before saving.
-3. **Trust badges in the browser.** `source_label` and `reviewed_upstream` are
-   already in `list --json`; the browse list needs to show them.
-4. **Recipe-declared resources.** `@recipe.resource keybinding SUPER+RETURN`
-   would let conflict detection work against installed recipes, not just drafts.
+1. **Streaming.** Both the agent's output and a running recipe's output are
+   captured rather than streamed. It is the largest remaining gap in how the
+   whole thing feels.
+2. **A real conversation.** Answer the agent's clarifying questions and re-plan,
+   instead of rewriting the request.
+3. **Recipe-declared resources.** `@recipe.resource keybinding SUPER+RETURN`
+   would let conflict detection work against installed recipes, not just drafts
+   — and would let the browser warn that two recipes fight over the same key.
+4. **Finish the push path.** Test `contribute --push` against a scratch fork,
+   including `gh repo fork` when the contributor lacks write access.
+5. **Secret parameters.** Still the outstanding safety item from Milestone 1.

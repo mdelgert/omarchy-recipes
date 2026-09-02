@@ -79,6 +79,20 @@ Every command also speaks JSON, which is what the frontends consume:
 ./bin/omarchy-recipes log --json example-config-value
 ```
 
+### Create a recipe by describing it
+
+Press `Ctrl+N` in the menu, or from the command line:
+
+```bash
+./bin/omarchy-recipes agent providers                      # claude, codex
+./bin/omarchy-recipes agent plan "Add a hotkey Super+Alt+Y that opens Firefox"
+```
+
+The agent inspects the machine, declares what it would touch, and the engine
+checks that against reality — a shortcut that is already bound stops the flow
+until you choose what to do. Then it writes the recipe, the engine lints it, and
+you read the Bash before it is saved. Nothing is applied until you press Apply.
+
 Authoring commands, used by the recipe-authoring agent so it never needs a shell
 of its own:
 
@@ -297,7 +311,7 @@ AGENTS.md                         project-wide instructions for coding agents
 schemas/recipe.schema.json        normalized metadata schema
 tests/                            engine tests, fixtures, QML logic tests
 MILESTONE-1.md                    what the native browser milestone delivered
-MILESTONE-2.md                    AI-assisted authoring: status and what remains
+MILESTONE-2.md                    AI-assisted recipe authoring and contribution
 ```
 
 ## Design principles

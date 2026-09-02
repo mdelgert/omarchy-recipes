@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from omarchy_recipes import authoring, conflicts, contribution, inspection, lint, sources
+from omarchy_recipes import agent, authoring, conflicts, contribution, inspection, lint, sources
 from omarchy_recipes.core import RecipeError, scan
 from omarchy_recipes.inspection import DomainResult
 
@@ -409,3 +409,51 @@ class ContributionTests(WorkspaceTestCase):
         payload = json.loads(proc.stdout)
         self.assertTrue(payload["dry_run"])
         self.assertEqual(payload["branch"], "recipe/drafted-note")
+
+
+class AgentAdapterTests(unittest.TestCase):
+    """The adapter's own logic. No provider is invoked: these assert how a
+    model's reply is handled, which is exactly where a wrong assumption would
+    let malformed output through."""
+
+    def test_providers_are_reported_with_availability(self):
+        names = [p.name for p in agent.providers()]
+        self.assertIn("claude", names)
+        for provider in agent.providers():
+            if not provider.available:
+                self.assertTrue(provider.reason)
+
+    def test_provider_can_be_overridden(self):
+        saved = os.environ.get("OMARCHY_RECIPES_AGENT")
+        os.environ["OMARCHY_RECIPES_AGENT"] = "codex"
+        try:
+            self.assertEqual(agent.default_provider(), "codex")
+        finally:
+            if saved is None:
+                os.environ.pop("OMARCHY_RECIPES_AGENT", None)
+            else:
+                os.environ["OMARCHY_RECIPES_AGENT"] = saved
+
+    def test_unknown_provider_is_refused(self):
+        with self.assertRaises(RecipeError):
+            agent.complete("hi", provider="not-a-provider")
+
+    def test_json_is_extracted_from_prose_and_fences(self):
+        self.assertEqual(agent._extract_json('{"a": 1}')["a"], 1)
+        self.assertEqual(agent._extract_json('Sure!\n```json\n{"a": 2}\n```\nDone')["a"], 2)
+        self.assertEqual(agent._extract_json('text before {"a": 3} text after')["a"], 3)
+
+    def test_braces_inside_strings_do_not_end_the_object(self):
+        reply = '{"recipe": "case \\"$x\\" in a) echo {} ;; esac", "id": "x"}'
+        self.assertIn("esac", agent._extract_json(reply)["recipe"])
+
+    def test_unusable_replies_are_errors_not_silent_empties(self):
+        for reply in ["no json here", "", '{"unterminated": ', '{bad json}']:
+            with self.assertRaises(RecipeError, msg=repr(reply)):
+                agent._extract_json(reply)
+
+    def test_denied_tools_are_last_so_the_prompt_cannot_be_swallowed(self):
+        argv = agent.PROVIDER_ARGV["claude"](None)
+        self.assertEqual(argv[-len(agent.DENIED_TOOLS) - 1], "--disallowedTools")
+        for tool in ["Bash", "Edit", "Write"]:
+            self.assertIn(tool, argv)
