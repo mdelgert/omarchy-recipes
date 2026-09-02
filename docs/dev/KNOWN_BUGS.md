@@ -1,0 +1,1 @@
+generated a bug on install script like sudo pacman -S remmina
