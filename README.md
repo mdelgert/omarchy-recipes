@@ -1,10 +1,117 @@
 # omarchy-recipes
 
-A self-describing, reversible recipe runner for Omarchy and Linux workstations.
+A self-describing, reversible recipe runner for Omarchy and Linux workstations,
+with a native Omarchy plugin for browsing, running, and authoring recipes.
 
-`omarchy-recipes` turns reusable Bash setup/configuration scripts into discoverable **recipes**. Each recipe declares its title, description, category, parameters, privilege needs, compatibility, and undo capability in structured comments. The runner discovers recipes dynamically, validates input, records execution history, provides backup/restore helpers, and exposes the same recipe collection to CLI/TUI/Omarchy frontends.
+Reusable setup and configuration scripts become discoverable **recipes**. Each
+one declares its title, parameters, privilege needs, and undo capability in its
+own header, so the menu is generated from the recipes themselves — add a recipe
+file and it appears, with the right controls, current state, and an Undo button.
 
-> The script is the source of truth. Add a recipe file; frontends discover it without UI code changes.
+Describe a change in plain language and an agent will draft one for you, after
+checking it against what is already configured on your machine. Nothing runs
+until you have read it and pressed Apply.
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/mdelgert/omarchy-recipes.git --enable
+```
+
+That clones the repository into `~/.config/omarchy/plugins/`, validates it, and
+offers to enable it. When it asks for a bar section, pick one — that is where
+the recipe icon lands.
+
+Open it from the bar icon, or:
+
+```bash
+omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{}'
+```
+
+Optionally bind a key in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + SHIFT + R", "Recipes",
+  "omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{}'")
+```
+
+Update later with:
+
+```bash
+omarchy plugin update io.github.mdelgert.omarchy-recipes
+omarchy-restart-shell     # only needed when the plugin's QML changed
+```
+
+> A freshly installed third-party plugin lists as `disabled` until enabled, and
+> a plugin enabled *without* a section stays out of the bar. If there is no
+> icon:
+> ```bash
+> omarchy plugin disable io.github.mdelgert.omarchy-recipes
+> omarchy plugin enable io.github.mdelgert.omarchy-recipes right
+> ```
+
+## Remove
+
+**Undo anything you applied first** — undo works from the recorded run history,
+so reverse your changes while the engine is still installed:
+
+The runner lives inside the plugin, so call it by path (or use the menu's Undo
+button, which does the same thing):
+
+```bash
+cd ~/.config/omarchy/plugins/io.github.mdelgert.omarchy-recipes
+./bin/omarchy-recipes history            # what has been applied
+./bin/omarchy-recipes undo <recipe-id>   # for each one you want reversed
+```
+
+Then:
+
+```bash
+omarchy plugin disable io.github.mdelgert.omarchy-recipes   # off, still installed
+omarchy plugin remove io.github.mdelgert.omarchy-recipes --yes
+```
+
+`remove` disables it first. A plugin added with `omarchy plugin add` is a git
+clone and is deleted outright; one copied in by `install.sh` is moved to a
+hidden backup beside it, which you can delete too:
+
+```bash
+rm -rf ~/.config/omarchy/plugins/.io.github.mdelgert.omarchy-recipes.bak.*
+```
+
+Your own recipes and run history live outside the plugin folder and survive it.
+Remove them only if you want them gone:
+
+```bash
+rm -rf ~/.config/omarchy-recipes                                 # your recipes
+rm -rf "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-recipes"   # run history + backups
+rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-recipes-demo"  # example recipes' demo files
+```
+
+Finally, drop the keybinding from `~/.config/hypr/bindings.lua`.
+
+## Requirements
+
+- Linux with Bash 5 and Python 3.9+ (Arch/Omarchy ship both). The engine has no
+  third-party Python dependencies.
+- For the native menu: Omarchy with its Quickshell-based shell running.
+- For `make test-qml` / `make lint-qml`: the Qt 6 tools in `/usr/lib/qt6/bin`,
+  which an Omarchy install already has.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `omarchy plugin list` does not show the plugin | The shell has not rescanned. Run `omarchy-shell shell rescanPlugins`. |
+| The plugin lists as `disabled` | Third-party plugins start disabled. Run `omarchy plugin enable io.github.mdelgert.omarchy-recipes right`. |
+| `omarchy plugin add` says the id is already used | It is already installed. Use `omarchy plugin update <id>`, or remove it first. |
+| No bar icon, but the plugin is enabled | It was enabled without a section, so it is not in the bar layout. `omarchy plugin disable` it, then `omarchy plugin enable <id> right`. |
+| The bar icon is missing after a QML change | The shell caches plugin QML. Run `omarchy-restart-shell`. |
+| Nothing happens on `toggle` | The plugin is disabled, or the shell is not running. Check `omarchy-shell shell ping`. |
+| *Recipe engine unavailable* in the menu | The runner was not found or would not start. Re-run `make plugin`, or set `OMARCHY_RECIPES_BIN` to an `omarchy-recipes` that works. |
+| *N recipes were skipped* in the menu | A recipe's metadata is malformed. Run `./bin/omarchy-recipes validate` for the exact reason. |
+| QML edits do not take effect | The shell caches a menu plugin's compiled QML. Run `omarchy-restart-shell`. |
+| A recipe has no Undo button | The recipe declares `undo: none`, or nothing has been applied yet. The detail view says which. |
 
 ## Why this exists
 
@@ -26,58 +133,36 @@ recipes, tests, and the Omarchy `menu` plugin are all in place. See
 [`MILESTONE-1.md`](MILESTONE-1.md) for what the first milestone delivered and
 where the edges still are.
 
-## Requirements
+## Using the menu
 
-- Linux with Bash 5 and Python 3.9+ (Arch/Omarchy ship both). The engine has no
-  third-party Python dependencies.
-- For the native menu: Omarchy with its Quickshell-based shell running.
-- For `make test-qml` / `make lint-qml`: the Qt 6 tools in `/usr/lib/qt6/bin`,
-  which an Omarchy install already has.
+### Opening it
 
-## Install
+| | |
+| --- | --- |
+| **Bar icon** | Click the 📖 book icon in the bar |
+| **Keybinding** | Whatever you bound in [Install](#install) |
+| **Command** | `omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{}'` |
 
-```bash
-git clone https://github.com/mdelgert/omarchy-recipes.git
-cd omarchy-recipes
-./bin/omarchy-recipes list
-```
-
-That is the whole engine install — it runs from the checkout. To call it from
-anywhere without the path, add it to `PATH` (adjust the clone location):
+Open straight into one recipe by passing its id:
 
 ```bash
-mkdir -p ~/.local/bin
-cp -r ~/omarchy-recipes ~/.local/share/omarchy-recipes
-printf '#!/usr/bin/env bash\nexec "$HOME/.local/share/omarchy-recipes/bin/omarchy-recipes" "$@"\n' \
-  > ~/.local/bin/omarchy-recipes
-chmod +x ~/.local/bin/omarchy-recipes
+omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{"recipe":"example-numeric-setting"}'
 ```
 
-A wrapper rather than a symlink: `bin/omarchy-recipes` locates `src/`, `lib/`,
-and `recipes/` relative to itself, so it has to keep sitting inside the checkout.
+### Keys
 
-## Quick start
+| Key | In the list | In a recipe |
+| --- | --- | --- |
+| type | filters recipes | goes to the focused control |
+| `↑` `↓` | move the cursor | — |
+| `Enter` | open the recipe | activate the focused button |
+| `Tab` | — | move between controls and buttons |
+| `Ctrl+N` | create a recipe | — |
+| `Esc` | clear the filter, then close | back to the list |
+| `F5` | reload recipes | reload and re-check |
 
-```bash
-./bin/omarchy-recipes list
-./bin/omarchy-recipes info example-config-value
-./bin/omarchy-recipes check example-config-value
-./bin/omarchy-recipes run example-config-value --value balanced
-./bin/omarchy-recipes history example-config-value
-./bin/omarchy-recipes undo example-config-value
-```
-
-Every command also speaks JSON, which is what the frontends consume:
-
-```bash
-./bin/omarchy-recipes list --json                 # recipes + any that failed to parse
-./bin/omarchy-recipes info --json example-config-value
-./bin/omarchy-recipes status --json example-config-value    # undo eligibility; runs nothing
-./bin/omarchy-recipes check --json example-config-value
-./bin/omarchy-recipes run --json example-config-value --value balanced
-./bin/omarchy-recipes history --json example-config-value --limit 20
-./bin/omarchy-recipes log --json example-config-value
-```
+Runner resolution and the development loop:
+[`docs/OMARCHY_PLUGIN.md`](docs/OMARCHY_PLUGIN.md).
 
 ### Create a recipe by describing it
 
@@ -129,164 +214,73 @@ A local or community recipe can never take an id a bundled one already claimed.
 `OMARCHY_RECIPES_ROOT` points the engine at a different checkout;
 `OMARCHY_RECIPES_HOME` relocates the user workspace.
 
-## Omarchy menu
-
-The menu lists every discovered recipe by category, filters as you type, and
-opens a detail view generated from the recipe's own metadata: current state from
-`check`, a control per declared parameter, what the recipe promises about
-reversal, a confirmed Apply, the run's output, its history, and Undo when the
-engine says one is available. Adding a recipe never requires a UI change.
-
-### Install it
+## Command line
 
 ```bash
-omarchy plugin add https://github.com/mdelgert/omarchy-recipes.git --enable
+./bin/omarchy-recipes list
+./bin/omarchy-recipes info example-config-value
+./bin/omarchy-recipes check example-config-value
+./bin/omarchy-recipes run example-config-value --value balanced
+./bin/omarchy-recipes history example-config-value
+./bin/omarchy-recipes undo example-config-value
 ```
 
-That clones the repository straight into `~/.config/omarchy/plugins/`, validates
-the manifest, and offers to enable it. When it asks which bar section, pick one
-— that is where the recipe icon lands.
-
-The repository *is* the plugin: `manifest.json` sits at its root and points at
-`omarchy-plugin/`, so there is nothing to build and no separate download.
-
-Update it later with:
+Every command also speaks JSON, which is what the frontends consume:
 
 ```bash
-omarchy plugin update io.github.mdelgert.omarchy-recipes
-omarchy-restart-shell     # only needed when the plugin's QML changed
+./bin/omarchy-recipes list --json                 # recipes + any that failed to parse
+./bin/omarchy-recipes info --json example-config-value
+./bin/omarchy-recipes status --json example-config-value    # undo eligibility; runs nothing
+./bin/omarchy-recipes check --json example-config-value
+./bin/omarchy-recipes run --json example-config-value --value balanced
+./bin/omarchy-recipes history --json example-config-value --limit 20
+./bin/omarchy-recipes log --json example-config-value
 ```
 
-### Install it from a working copy
+### Running the engine outside Omarchy
+
+The plugin ships the engine, so `omarchy plugin add` is all most people need.
+To use the CLI on its own, or to work on the project:
+
+```bash
+git clone https://github.com/mdelgert/omarchy-recipes.git
+cd omarchy-recipes
+./bin/omarchy-recipes list
+```
+
+That is the whole engine install — it runs from the checkout. To call it from
+anywhere without the path, add it to `PATH` (adjust the clone location):
+
+```bash
+mkdir -p ~/.local/bin
+cp -r ~/omarchy-recipes ~/.local/share/omarchy-recipes
+printf '#!/usr/bin/env bash\nexec "$HOME/.local/share/omarchy-recipes/bin/omarchy-recipes" "$@"\n' \
+  > ~/.local/bin/omarchy-recipes
+chmod +x ~/.local/bin/omarchy-recipes
+```
+
+A wrapper rather than a symlink: `bin/omarchy-recipes` locates `src/`, `lib/`,
+and `recipes/` relative to itself, so it has to keep sitting inside the checkout.
+
+### Installing the plugin from a working copy
 
 When you are changing the code, install the working tree instead — uncommitted
 changes and all:
 
 ```bash
-git clone https://github.com/mdelgert/omarchy-recipes.git
-cd omarchy-recipes
 ./omarchy-plugin/install.sh                                # or: make plugin
 omarchy plugin enable io.github.mdelgert.omarchy-recipes right
+omarchy-restart-shell
 ```
 
 `install.sh` mirrors the repository into the plugin directory, so an install
-from git and an install from a working copy are the same layout. The trailing
-`right` places the bar icon (`left`, `center`, and `right` all work).
-
-Confirm either way:
-
-```bash
-omarchy plugin list | grep omarchy-recipes
-# io.github.mdelgert.omarchy-recipes enabled third-party menu,bar-widget Omarchy Recipes
-```
-
-> A freshly installed third-party plugin lists as `disabled` until it is
-> enabled. If it is enabled but shows no bar icon, it was enabled *without* a
-> section: disable it, then enable it again with one.
-> ```bash
-> omarchy plugin disable io.github.mdelgert.omarchy-recipes
-> omarchy plugin enable io.github.mdelgert.omarchy-recipes right
-> ```
-
-### Three ways to open it
-
-| | |
-| --- | --- |
-| **Bar icon** | Click the 📖 book icon in the bar |
-| **Keybinding** | See below — not set up by default |
-| **Command** | `omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{}'` |
-
-### Bind it to a key
-
-The bar icon works out of the box; a keybinding is optional and is **not** set
-up for you. Add this to `~/.config/hypr/bindings.lua` (`SUPER + SHIFT + R` is
-unused by Omarchy's defaults; check yours with `omarchy menu keybindings --print`):
-
-```lua
-o.bind("SUPER + SHIFT + R", "Recipes",
-  "omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{}'")
-```
-
-Open a specific recipe directly by passing its id:
-
-```bash
-omarchy-shell shell toggle io.github.mdelgert.omarchy-recipes '{"recipe":"example-numeric-setting"}'
-```
-
-### Updating a working copy
-
-```bash
-git pull
-make plugin              # reinstall into the plugin directory
-omarchy-restart-shell    # only needed when the plugin's QML changed
-```
+from git and an install from a working copy are the same layout. After a
+`git pull`, re-run `make plugin`.
 
 `omarchy-restart-shell` restarts the desktop shell (brief bar flicker; your
-windows and Hyprland are untouched). It is required after a QML change because
+windows and Hyprland are untouched). It is required after a QML change, because
 the shell caches a menu plugin's compiled QML for the life of the process.
 Engine, recipe, and `RecipeModel.js` changes are picked up on the next summon.
-
-Keys, runner resolution, and the development loop:
-[`docs/OMARCHY_PLUGIN.md`](docs/OMARCHY_PLUGIN.md).
-
-## Uninstall
-
-**Undo anything you applied first.** Undo works from the recorded run history,
-so reverse your changes while the engine is still installed:
-
-```bash
-./bin/omarchy-recipes history                       # what has been applied
-./bin/omarchy-recipes undo <recipe-id>              # for each one you want reversed
-```
-
-Remove the Omarchy plugin:
-
-```bash
-omarchy plugin disable io.github.mdelgert.omarchy-recipes   # keep it installed, just off
-omarchy plugin remove io.github.mdelgert.omarchy-recipes --yes
-```
-
-`remove` disables the plugin first. What happens to the folder depends on how it
-was installed: a plugin added with `omarchy plugin add` is a git clone and is
-deleted outright, while one copied in by `install.sh` is moved to a hidden
-backup beside it. Delete that backup too if you want it gone:
-
-```bash
-rm -rf ~/.config/omarchy/plugins/.io.github.mdelgert.omarchy-recipes.bak.*
-```
-
-Your own recipes live in `~/.config/omarchy-recipes/`, not in the plugin folder,
-so removing the plugin does not delete them.
-
-Then remove the rest:
-
-```bash
-rm -rf "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-recipes"   # run history + backups
-rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-recipes-demo"  # example recipes' demo files
-rm -f  ~/.local/bin/omarchy-recipes                              # only if you made the wrapper
-rm -rf ~/.local/share/omarchy-recipes                            # only if you copied it there
-```
-
-Deleting the state directory throws away every recorded run and its backups,
-which is what undo restores from. Do it last.
-
-Finally, drop the keybinding from `~/.config/hypr/bindings.lua` and delete the
-repository checkout.
-
-## Troubleshooting
-
-| Symptom | Cause and fix |
-| --- | --- |
-| `omarchy plugin list` does not show the plugin | The shell has not rescanned. Run `omarchy-shell shell rescanPlugins`. |
-| The plugin lists as `disabled` | Third-party plugins start disabled. Run `omarchy plugin enable io.github.mdelgert.omarchy-recipes right`. |
-| `omarchy plugin add` says the id is already used | It is already installed. Use `omarchy plugin update <id>`, or remove it first. |
-| No bar icon, but the plugin is enabled | It was enabled without a section, so it is not in the bar layout. `omarchy plugin disable` it, then `omarchy plugin enable <id> right`. |
-| The bar icon is missing after a QML change | The shell caches plugin QML. Run `omarchy-restart-shell`. |
-| Nothing happens on `toggle` | The plugin is disabled, or the shell is not running. Check `omarchy-shell shell ping`. |
-| *Recipe engine unavailable* in the menu | The runner was not found or would not start. Re-run `make plugin`, or set `OMARCHY_RECIPES_BIN` to an `omarchy-recipes` that works. |
-| *N recipes were skipped* in the menu | A recipe's metadata is malformed. Run `./bin/omarchy-recipes validate` for the exact reason. |
-| QML edits do not take effect | The shell caches a menu plugin's compiled QML. Run `omarchy-restart-shell`. |
-| A recipe has no Undo button | The recipe declares `undo: none`, or nothing has been applied yet. The detail view says which. |
 
 ## Recipe example
 
@@ -348,16 +342,6 @@ MILESTONE-2.md                    AI-assisted recipe authoring and contribution
 7. **AI-authorable, human-auditable** — the skill defines safe conventions.
 8. **Portable collections** — recipes should eventually be shareable as Git repositories.
 
-## Inspiration
-
-The metadata approach intentionally takes inspiration from `argc`, which defines Bash CLI behavior through structured comments. The runner/task concepts also borrow ideas from `just`, while state/idempotence ideas are influenced by chezmoi. We do not need to clone any of them: this project adds the workstation-oriented reversible lifecycle and generated UI model.
-
-- argc: https://github.com/sigoden/argc
-- just: https://github.com/casey/just
-- chezmoi: https://github.com/twpayne/chezmoi
-- Gum (possible TUI frontend): https://github.com/charmbracelet/gum
-- Omarchy plugin docs: https://plugins.omarchy.org/develop.html
-
 ## Development
 
 ```bash
@@ -370,6 +354,16 @@ make plugin      # install the Omarchy plugin from this working tree
 
 No third-party Python packages are required for the engine. The QML targets need
 Qt 6 tools (`/usr/lib/qt6/bin`), which an Omarchy install already has.
+
+## Inspiration
+
+The metadata approach intentionally takes inspiration from `argc`, which defines Bash CLI behavior through structured comments. The runner/task concepts also borrow ideas from `just`, while state/idempotence ideas are influenced by chezmoi. We do not need to clone any of them: this project adds the workstation-oriented reversible lifecycle and generated UI model.
+
+- argc: https://github.com/sigoden/argc
+- just: https://github.com/casey/just
+- chezmoi: https://github.com/twpayne/chezmoi
+- Gum (possible TUI frontend): https://github.com/charmbracelet/gum
+- Omarchy plugin docs: https://plugins.omarchy.org/develop.html
 
 ## License
 
