@@ -35,6 +35,17 @@ from .core import RecipeError
 
 DEFAULT_TIMEOUT = 240
 
+# Planning and drafting cost very different amounts of time, because generation
+# time is dominated by how much the model writes. Measured on this machine for
+# "script that changes hostname": plan 12s, draft 236s — against a 240s ceiling
+# the draft was intermittently killed one second from finishing, which the user
+# saw as a failure after four minutes rather than as a slow success.
+#
+# So they get their own budgets: plan is held to something tight enough that a
+# hung provider is noticed quickly, and draft gets real headroom.
+PLAN_TIMEOUT = 120
+DRAFT_TIMEOUT = 420
+
 # Tools the model must not have while authoring. It is being asked to write
 # text, not to operate the machine; inspection reaches it as data in the prompt.
 DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task"]
@@ -430,7 +441,7 @@ Reply with ONE JSON object and nothing else:
 
 {PLAN_SCHEMA}
 """
-    reply = _extract_json(complete(prompt, provider=provider, model=model))
+    reply = _extract_json(complete(prompt, provider=provider, model=model, timeout=PLAN_TIMEOUT))
     if not isinstance(reply.get("resources"), list):
         reply["resources"] = []
     for key in ("summary", "recipe_id", "title", "category"):
@@ -498,13 +509,32 @@ Hard requirements, all enforced by `omarchy-recipes lint`:
 - never use eval, never pipe a download into a shell, never embed a credential
 - elevate with `recipe_sudo <command>`, never bare `sudo`: a recipe run from the
   menu has no terminal, so `sudo` cannot prompt and fails outright
+- every user input is one `@param` line, and the type is a bare word, not an
+  assignment — `@param <name> <type> key=value ...`:
+
+      # @param hostname string required=true label="Hostname"
+      # @param mode choice default=balanced choices=performance,balanced
+
+  the type is exactly one of: string, integer, boolean, choice, path, secret.
+  `@param name type=string` is rejected; only the attributes after the type are
+  `key=value`
+
+Length. Write the shortest recipe that is actually correct, and stop. The
+recipes that ship with this project run 46-229 lines, and a one-setting change
+belongs at the short end of that. Do not pad it: no capability probes for tools
+the facts above already show are present, no alternative branches for package
+managers this machine does not use, no re-implementing what `lib/recipe.sh`
+gives you, no commentary restating what the code plainly does. Every extra line
+is a line the user has to read before they can trust it — this project's whole
+claim is that a generated recipe is auditable, and a 300-line script for a
+one-line change is not.
 - quote every expansion, including "$RECIPE_ARG_*"
 
 Reply with ONE JSON object and nothing else:
 
 {{"recipe_id": "the id", "recipe": "the complete bash script as a JSON string"}}
 """
-    reply = _extract_json(complete(prompt, provider=provider, model=model))
+    reply = _extract_json(complete(prompt, provider=provider, model=model, timeout=DRAFT_TIMEOUT))
     text = str(reply.get("recipe") or "")
     if not text.strip():
         raise RecipeError("the agent returned an empty recipe")

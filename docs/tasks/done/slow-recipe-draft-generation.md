@@ -1,6 +1,6 @@
 # Task: Investigate and fix slow recipe-draft generation (90+ seconds for trivial requests)
 
-Status: Ready
+Status: Done
 Type: bug
 Roadmap link: v0.2 — usable interaction
 
@@ -78,21 +78,21 @@ startup cost) is the dominant factor before changing behavior.
 
 ## Acceptance criteria
 
-- [ ] timing breakdown captured for a real "change hostname"-style request,
+- [x] timing breakdown captured for a real "change hostname"-style request,
       showing where the ~90+ seconds is spent
-- [ ] a concrete fix implemented based on that breakdown (reduced inspection
+- [x] a concrete fix implemented based on that breakdown (reduced inspection
       scope, reduced round trips, and/or visible progress reporting —
       whichever the measurement points to)
-- [ ] measured improvement (or, if the floor is unavoidable provider
+- [x] measured improvement (or, if the floor is unavoidable provider
       latency, visible progress feedback added) demonstrated with before/
       after numbers in the Report section
-- [ ] existing `agent plan`/`agent draft` behavior and output contract
+- [x] existing `agent plan`/`agent draft` behavior and output contract
       otherwise unchanged (still two stateless calls returning the same JSON
       shape, unless the investigation justifies changing that — call it out
       explicitly in the Report if so)
-- [ ] tests added/updated for any changed inspection-domain-selection logic
-- [ ] `make test validate` (or `make check`) passes
-- [ ] `./bin/omarchy-recipes validate` passes
+- [x] tests added/updated for any changed inspection-domain-selection logic
+- [x] `make test validate` (or `make check`) passes
+- [x] `./bin/omarchy-recipes validate` passes
 
 ## Testing notes
 
@@ -104,5 +104,95 @@ startup cost) is the dominant factor before changing behavior.
 
 ## Report
 
-<!-- Filled in by the agent when done. Move this file to docs/tasks/done/ and
-set Status to Done when finished. -->
+Measured first. The measurement contradicted the task's own leading hypothesis,
+so the fix is somewhere else entirely.
+
+### Baseline: where the time actually went
+
+Request "script that changes hostname", provider `claude`, no model pinned:
+
+| Phase | Time |
+| --- | --- |
+| CLI startup floor | 0.05s |
+| Inspection, all four domains | **0.02s** |
+| Conflict checking | 0.001s |
+| Bare provider round trip (tiny prompt) | 3.07s |
+| `agent plan` | 12.37s |
+| `agent draft` | **236.03s** |
+
+Two findings:
+
+**Inspection is not the problem.** The task flagged the fixed four-domain
+default as a suspect. All four together cost 0.02s against a 0.05s CLI floor —
+about 0.02% of a draft. Narrowing them would have bought nothing measurable and
+risked the exact regression the testing notes warn about, a false "no
+conflicts". **Deliberately not implemented.**
+
+**The draft was failing, not merely slow.** 236s sat against `DEFAULT_TIMEOUT =
+240`, and a separate run hit 240.14s exactly and was killed one second from
+finishing — surfacing to the user as a failure after four minutes rather than a
+slow success. That is the reported bug at its worst.
+
+### Cause: the model was writing far too much
+
+Generation time is dominated by output tokens, and the draft produced **10,938
+characters** for a one-setting change. The recipes that ship with this project
+run 1,257-8,210 characters; the generated one was larger than any of them and
+roughly 4x the median. Padding took the usual forms: capability probes for
+tools the system facts already listed, branches for package managers this
+machine does not have, and commentary restating the code.
+
+Cross-check: the same draft with `--model haiku` took 55.9s for 2,707
+characters. Time tracks output length across models, not prompt size.
+
+### Fix
+
+Nothing about round trips or inspection changed. The draft prompt and
+`SKILL.md` now require the shortest correct recipe and name the specific kinds
+of padding to omit — argued from auditability rather than speed, since a
+300-line script for a one-line change defeats this project's central claim, and
+being faster is a consequence.
+
+`plan` and `draft` also got separate timeouts (120s / 420s) instead of one 240s
+constant, so a legitimate draft is never killed at the finish line while a hung
+plan is still noticed quickly.
+
+A third fix prevents wasted generations rather than slow ones: `SKILL.md` never
+showed `@param` syntax and the draft prompt never mentioned it, so a draft was
+refused for `@param name type=string` — a fair guess, since every *other*
+attribute is `key=value`. Both now show the grammar and the six valid types.
+This is the third instance of the same root cause in this project (after
+`privilege` values and `recipe_sudo`): the engine enforcing a rule nobody had
+written down for the model. Each miss costs a full generation.
+
+### Result
+
+| | Before | After (3 trials) |
+| --- | --- | --- |
+| Draft time | 236.03s (one run timed out at 240s) | 95.97s, 102.14s, 131.92s |
+| Output size | 10,938 chars | 4,739 / 4,576 / 4,120 chars |
+| Lint | passed 1 of 2 attempts | clean 3 of 3 |
+
+Roughly **2.1x faster**, output **~58% smaller**, and no timeout failures.
+Correctness held: the 147-line result implements all three actions, backs up
+both files, restores exactly on undo, uses `recipe_sudo`, declares an icon, and
+parses cleanly under `bash -n`.
+
+Honest caveat: trial 3 was the *slowest* run despite the *shortest* output, so
+provider-side variance is real and output length is the dominant controllable
+factor, not the only one. A floor of roughly a minute remains, which is why the
+timing breakdown stays.
+
+### Instrumentation kept
+
+`agent plan --json` and `agent draft --json` now carry a `timings` object
+(`inspect`/`model`/`conflicts`/`lint`, plus `chars` for the draft). This is an
+additive field, flagged here because the acceptance criteria ask for contract
+changes to be called out; `schemaVersion` is unchanged and existing consumers
+ignore it. It is kept rather than made temporary so the next report of a slow
+draft arrives with its own breakdown instead of needing this investigation
+repeated:
+
+```json
+"timings": {"inspect": 0.016, "model": 6.503, "conflicts": 0.001, "total": 6.52}
+```

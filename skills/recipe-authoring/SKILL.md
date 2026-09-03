@@ -54,9 +54,37 @@ durable artifact; the conversation is not. Work in this order:
 1. Start with `#!/usr/bin/env bash`.
 2. Use `set -Eeuo pipefail`.
 3. Include required `@recipe.*` metadata.
-4. Declare every UI/user input with `@param`.
+4. Declare every UI/user input with `@param`. One per line, and the type is a
+   bare word rather than an assignment — `@param <name> <type> key=value ...`:
+
+   ```bash
+   # @param hostname string required=true label="Hostname"
+   # @param mode choice default=balanced choices=performance,balanced,powersave
+   ```
+
+   The type is exactly one of `string`, `integer`, `boolean`, `choice`, `path`,
+   `secret`. Writing `@param name type=string` is rejected: only the attributes
+   *after* the type are `key=value`.
 5. Source `${OMARCHY_RECIPES_LIB:?}/recipe.sh` when helper functions are needed.
 6. Implement the `check`, `apply`, and `undo` action protocol. If undo is declared `none`, implement `undo` by clearly reporting it is unsupported and returning non-zero.
+
+## Length
+
+Write the shortest recipe that is actually correct, and stop. The recipes that
+ship with this project run 46-229 lines; a one-setting change belongs at the
+short end.
+
+Padding is the common failure, and it costs twice. Every extra line is a line
+the user has to read before they can trust the recipe — this project's claim is
+that a generated recipe is *auditable*, and a 300-line script for a one-line
+change is not. It is also the single biggest driver of how long generation
+takes, because that is dominated by how much you write, so an over-long recipe
+is a slow one as well as a harder one to review.
+
+Specifically, do not add: capability probes for tools the system facts already
+show are present; alternative branches for package managers or init systems
+this machine does not use; re-implementations of what `lib/recipe.sh` already
+provides; or comments restating what the code plainly does.
 
 ## Safety rules
 

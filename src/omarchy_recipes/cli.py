@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,6 +25,30 @@ from .core import (
 
 def repo_root() -> Path:
     return recipe_root()
+
+
+class _Timings:
+    """Per-phase wall-clock for the authoring path, reported in `--json`.
+
+    Authoring is the one place the engine waits minutes on something it does not
+    control, and "it was slow" is not actionable without knowing which phase was
+    slow. Kept rather than made temporary for that reason: the next report of a
+    slow draft should arrive with its own breakdown attached.
+    """
+
+    def __init__(self) -> None:
+        self.phases: dict[str, float] = {}
+
+    @contextlib.contextmanager
+    def phase(self, name: str):
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.phases[name] = round(time.perf_counter() - start, 3)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**self.phases, "total": round(sum(self.phases.values()), 3)}
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -367,12 +393,19 @@ def main(argv: list[str] | None = None) -> int:
                 # Only the domains the request plausibly needs: a plan should
                 # not ship the machine's entire package list to a model.
                 domains = args.domains or ["config-files", "keybindings", "packages", "services"]
-                facts = {name: d.to_dict() for name, d in inspection.inspect(domains).items()}
-                plan = agent_mod.plan(args.request, root, inspection_data=facts,
-                                      notes=args.answers or None,
-                                      provider=args.provider, model=args.model)
-                report = conflicts_mod.check(plan.get("resources") or [], root)
-                payload = {"plan": plan, "conflicts": report}
+                # Timed so a slow authoring call can be attributed rather than
+                # guessed at. Measured here: inspection and conflict checking are
+                # hundredths of a second, and the model call is the whole cost.
+                clock = _Timings()
+                with clock.phase("inspect"):
+                    facts = {name: d.to_dict() for name, d in inspection.inspect(domains).items()}
+                with clock.phase("model"):
+                    plan = agent_mod.plan(args.request, root, inspection_data=facts,
+                                          notes=args.answers or None,
+                                          provider=args.provider, model=args.model)
+                with clock.phase("conflicts"):
+                    report = conflicts_mod.check(plan.get("resources") or [], root)
+                payload = {"plan": plan, "conflicts": report, "timings": clock.to_dict()}
                 if args.json:
                     emit(payload)
                 else:
@@ -406,11 +439,17 @@ def main(argv: list[str] | None = None) -> int:
                         f"{len(unresolved)} blocking conflict(s) not resolved; "
                         "supply a `decisions` object naming the chosen resolution")
 
-                text = agent_mod.draft(args.request, root, plan, findings=findings,
-                                       decisions=decisions, provider=args.provider, model=args.model)
-                report = authoring.draft_report(text)
+                clock = _Timings()
+                with clock.phase("model"):
+                    text = agent_mod.draft(args.request, root, plan, findings=findings,
+                                           decisions=decisions, provider=args.provider, model=args.model)
+                with clock.phase("lint"):
+                    report = authoring.draft_report(text)
                 if args.json:
-                    emit({"recipe_id": plan.get("recipe_id") or "", "recipe": text, "lint": report})
+                    emit({"recipe_id": plan.get("recipe_id") or "", "recipe": text, "lint": report,
+                          # `chars` alongside the time because they move together:
+                          # generation cost is dominated by how much was written.
+                          "timings": {**clock.to_dict(), "chars": len(text)}})
                 else:
                     sys.stdout.write(text if text.endswith("\n") else text + "\n")
                     for finding in report["findings"]:
