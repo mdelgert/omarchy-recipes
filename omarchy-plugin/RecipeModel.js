@@ -147,6 +147,24 @@ function agentSummary(provider, model) {
   return pinned ? name + " (" + pinned + ")" : name
 }
 
+// Which item should hold the keyboard for a given view.
+//
+// The menu takes `OnDemand` keyboard focus shortly after it opens, so clicking
+// away to another window drops the keyboard and clicking the card is how the
+// user gets it back. That reclaim has to know where to put focus: a view with
+// its own input wants it there, everything else wants the card's key handler,
+// which is what makes Escape work.
+//
+// Returning "card" for an unknown view is deliberate — the card handler is the
+// one that always knows how to leave, so an unrecognised view can still be
+// escaped from rather than trapping the user.
+function focusTargetForView(view) {
+  var name = String(view || "")
+  if (name === "create") return "create"
+  if (name === "settings") return "settings"
+  return "card"
+}
+
 // What an unset model is called in the picker. Empty is the shipped state and
 // needs a name a user can actually read.
 function modelDefaultLabel() { return "(provider default)" }

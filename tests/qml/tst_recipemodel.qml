@@ -216,6 +216,24 @@ TestCase {
     copilot: ["auto", "gpt-5.4"]
   })
 
+  function test_focus_target_per_view() {
+    // Clicking the card takes the keyboard back after OnDemand focus dropped
+    // it; this decides where it lands.
+    compare(Model.focusTargetForView("create"), "create")
+    compare(Model.focusTargetForView("settings"), "settings")
+    compare(Model.focusTargetForView("browse"), "card")
+    compare(Model.focusTargetForView("detail"), "card")
+  }
+
+  function test_unknown_view_still_lands_on_the_card() {
+    // The card handler is the one that knows how to leave, so an unrecognised
+    // view must never become a place Escape does not work.
+    compare(Model.focusTargetForView("something-new"), "card")
+    compare(Model.focusTargetForView(""), "card")
+    compare(Model.focusTargetForView(null), "card")
+    compare(Model.focusTargetForView(undefined), "card")
+  }
+
   function test_rows_carry_the_recipe_icon() {
     // The engine resolves the glyph (declaring none yields the category's), so
     // the row just forwards it.

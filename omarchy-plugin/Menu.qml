@@ -94,7 +94,7 @@ Item {
   function openCreate() {
     view = "create"
     recipeEngine.select("")
-    Qt.callLater(function() { create.forceActiveFocus() })
+    Qt.callLater(function() { create.focusRequest() })
   }
 
   function openSettings() {
@@ -105,6 +105,15 @@ Item {
     recipeEngine.loadConfig()
     settings.reload()
     Qt.callLater(function() { settings.forceActiveFocus() })
+  }
+
+  // Put the keyboard back where the current view expects it. The target is
+  // decided in RecipeModel.js so it can be tested without a compositor.
+  function reclaimFocus() {
+    var target = Model.focusTargetForView(root.view)
+    if (target === "create") create.focusRequest()
+    else if (target === "settings") settings.forceActiveFocus()
+    else keyCatcher.forceActiveFocus()
   }
 
   function setFilter(text) {
@@ -313,7 +322,16 @@ Item {
       // away to another window, and clicking the card is how they return.
       MouseArea {
         anchors.fill: parent
-        onClicked: if (root.view === "browse") keyCatcher.forceActiveFocus()
+        // Clicking the card takes the keyboard back. With OnDemand focus the
+        // user can click away to another window and the surface loses it — and
+        // an agent call runs for minutes, so that is the normal case, not an
+        // edge one.
+        //
+        // This used to fire only in the browse view, which left Create Recipe
+        // and the detail view keyboard-dead once focus had been lost: no key
+        // handler ran, so Escape silently did nothing and the only way out was
+        // to finish the flow. It has to work in every view.
+        onClicked: root.reclaimFocus()
       }
 
       // One key handler for the whole card. Content lives inside it, and

@@ -5,7 +5,6 @@ file in `docs/tasks/` (copy `docs/tasks/TEMPLATE.md`) and delete the line here.
 Promoted:
 - ~~Generated a bug on install script like sudo pacman -S remmina~~ →
   `docs/tasks/fix-generated-install-command.md`
-- ~~Esc key trapped until Apply in Create Recipe~~ →
   `docs/tasks/fix-create-recipe-esc-key.md`
 
 done - when running long script no indicator that it's doing something

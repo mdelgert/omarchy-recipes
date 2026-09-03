@@ -55,6 +55,14 @@ FocusScope {
     answerField.text = ""
   }
 
+  // Put the caret in the request box. Called instead of focusing this scope:
+  // the field sits inside a ScrollView, which takes the scope's focus for
+  // itself, so focusing the scope left the view unable to accept typing until
+  // the user clicked the field. Naming the field directly skips that.
+  function focusRequest() {
+    requestField.forceActiveFocus()
+  }
+
 
   function decide(resourceType, resolution) {
     var next = ({})
@@ -104,6 +112,11 @@ FocusScope {
       TextField {
         id: requestField
         width: parent.width
+        // This view is a FocusScope, and Menu.qml focuses the scope when it
+        // opens. Without a child claiming focus the scope has nothing to hand
+        // the keyboard to, so Ctrl+N landed on a view you could not type into
+        // until you clicked the field.
+        focus: true
         enabled: !root.engine.authoringBusy
         placeholderText: "Add a hotkey Super+Alt+Y that launches Firefox"
         foreground: root.foreground
