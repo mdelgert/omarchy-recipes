@@ -40,6 +40,7 @@
 - [ ] curated candidate recipe list (Omarchy gaps + professional utilities) — `docs/tasks/curated-recipe-ideas-list.md`
 - [ ] distro/package-manager capability helpers
 - [ ] automated VM tests for risky recipes
+- [ ] configurable recipe locations (current locations stay default) — `docs/tasks/configurable-recipe-locations.md`
 
 ## Later — shareable ecosystem
 
