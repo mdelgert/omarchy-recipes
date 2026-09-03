@@ -28,6 +28,8 @@
 - [ ] streaming output for long-running recipes
 - [ ] secret parameter handling (masked input, redacted logs)
 - [ ] recipe icons (Nerd Font glyphs) — `docs/tasks/recipe-icons.md`
+- [ ] update from source control + reload — `docs/tasks/update-from-source-control.md`
+- [ ] fix slow recipe-draft generation — `docs/tasks/slow-recipe-draft-generation.md`
 
 ## v0.3 — real recipe library
 
