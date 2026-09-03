@@ -56,6 +56,8 @@ GUIDANCE = {
     "missing-action": "`check`, `apply`, and `undo`",
     "write-without-backup": "recipe_backup_file",
     "empty-icon": "@recipe.icon",
+    "recipe-arg-case": "RECIPE_ARG_HOSTNAME",
+    "recipe-arg-without-parse": "recipe_parse_args",
 }
 
 # Refusals that are not the model's to avoid, so guidance would be noise.

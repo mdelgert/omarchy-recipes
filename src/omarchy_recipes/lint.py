@@ -87,6 +87,15 @@ DANGEROUS = [
     ("unquoted-recipe-arg", WARNING,
      re.compile(r"(?<![\"$])\$RECIPE_ARG_[A-Z0-9_]+(?![\"}])"),
      "unquoted parameter expansion; quote it so a value with spaces cannot split"),
+    # An error: recipe_parse_args uppercases every name, so a lowercase
+    # reference is a variable that is never set, and under `set -u` the recipe
+    # aborts on first use. A generated recipe read $RECIPE_ARG_hostname eight
+    # times, passed lint, and would have died on Apply — the rule above only
+    # matches uppercase, so it could not even see the problem.
+    ("recipe-arg-case", ERROR,
+     re.compile(r"\$\{?RECIPE_ARG_[a-z]"),
+     "parameter variables are uppercased by recipe_parse_args: `--hostname` becomes "
+     "`$RECIPE_ARG_HOSTNAME`; this lowercase name is never set and `set -u` aborts the recipe"),
 ]
 
 # A `case` branch label: an optional `case ... in` prefix, an optional opening
@@ -101,19 +110,43 @@ CASE_BRANCH_RE = re.compile(r"^\s*(?:case\s+\S+\s+in\s+)?\(?\s*([^()\n;]+?)\s*\)
 ACTIONS = ("check", "apply", "undo")
 
 
-def actions_declared(text: str) -> set[str]:
-    """Which of check/apply/undo the recipe has a `case` branch for.
+# `check() {` — a function named for an action. Legitimate as the handler, but
+# only if something actually calls it (see DISPATCH_RE).
+FUNCTION_DEF_RE = re.compile(r"^\s*(?:function\s+)?(check|apply|undo)\s*\(\)\s*\{", re.MULTILINE)
+# A line that hands control to whatever the first argument names — `"$1" "$@"`,
+# `"${1:-}" "${@:2}"`, bare `$1`. This is what makes the function form work.
+DISPATCH_RE = re.compile(r'^\s*"?\$\{?1[^}\s"]*\}?"?(?:\s|$)', re.MULTILINE)
 
-    Reads every branch label and splits its alternatives, so `check)`,
-    `"check")`, `('check')` and `check|status)` all count. Only an exact word
-    counts, so a stray `)` elsewhere in the file contributes nothing.
-    """
+
+def _case_actions(text: str) -> set[str]:
     found: set[str] = set()
     for label in CASE_BRANCH_RE.findall(text):
         for alternative in label.split("|"):
             word = alternative.strip().strip("\"'").strip()
             if word in ACTIONS:
                 found.add(word)
+    return found
+
+
+def _function_actions(text: str) -> set[str]:
+    return set(FUNCTION_DEF_RE.findall(text))
+
+
+def actions_declared(text: str) -> set[str]:
+    """Which of check/apply/undo the runner's `recipe.sh <action>` would reach.
+
+    Two shapes count. A `case` branch — `check)`, `"check")`, `('check')`,
+    `check|status)` — is read from the label, so quoting and alternation are
+    fine. A function named for the action counts too, but only when the file
+    also dispatches on `$1`; a generated recipe defined all three functions and
+    then simply ended, which the runner executes as a silent no-op that reports
+    success. Definitions with nothing calling them are the broken case, not an
+    alternative style.
+    """
+    found = _case_actions(text)
+    functions = _function_actions(text)
+    if functions and DISPATCH_RE.search(text):
+        found |= functions
     return found
 WRITE_RE = re.compile(r"(recipe_atomic_write|>\s*\"?\$\{?target|tee\s|sed\s+-i|>>\s*\"?\$)")
 BACKUP_RE = re.compile(r"(recipe_backup_file|recipe_mark_absent)")
@@ -171,9 +204,32 @@ def lint_text(text: str, path: Path | None = None) -> list[Finding]:
                                 "add `set -Eeuo pipefail` so a failing step stops the recipe"))
 
     actions = actions_declared(text)
+    # Name the actual defect. "no `check)` branch" told an author whose recipe
+    # defined check() but never called it to add a case branch — the wrong fix,
+    # and one a retrying model would follow straight into the same refusal.
+    undispatched = _function_actions(text) - actions
     for action in ACTIONS:
-        if action not in actions:
-            findings.append(Finding("missing-action", ERROR, f"no `{action})` branch; the runner calls check, apply, and undo"))
+        if action in actions:
+            continue
+        if action in undispatched:
+            message = (f"`{action}()` is defined but nothing ever calls it; the runner invokes the "
+                       f"script as `recipe.sh {action}`, so dispatch on \"$1\" — a `case` on it, or "
+                       f"`\"${{1:-}}\" \"${{@:2}}\"` as the last line")
+        else:
+            message = (f"nothing handles `{action}`; the runner invokes the script as "
+                       f"`recipe.sh {action}` and needs a `case` branch for it, or a function it "
+                       f"dispatches to on \"$1\"")
+        findings.append(Finding("missing-action", ERROR, message))
+
+    # Reading parameters without ever parsing them. recipe_parse_args is what
+    # sets RECIPE_ARG_*; without the call every value is unbound. Checked on the
+    # comment-stripped body so prose about the variables does not count.
+    code = "\n".join(_strip_comments(line) for line in text.splitlines())
+    if "RECIPE_ARG_" in code and "recipe_parse_args" not in code:
+        findings.append(Finding("recipe-arg-without-parse", ERROR,
+                                "reads $RECIPE_ARG_* but never calls `recipe_parse_args \"$@\"`, which is "
+                                "what sets them; every value is unbound and `set -u` aborts the recipe "
+                                "on first use"))
 
     if "@recipe.state" not in text and "recipe_state" not in text:
         findings.append(Finding("no-state-report", WARNING,

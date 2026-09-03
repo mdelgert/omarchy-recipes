@@ -65,12 +65,42 @@ durable artifact; the conversation is not. Work in this order:
    The type is exactly one of `string`, `integer`, `boolean`, `choice`, `path`,
    `secret`. Writing `@param name type=string` is rejected: only the attributes
    *after* the type are `key=value`.
+
+   Reading them: call `recipe_parse_args "$@"` first — inside each action after
+   the action word has been shifted off, or in each function when dispatching
+   with `"${1:-}" "${@:2}"`. It exports every value as `RECIPE_ARG_<NAME>` with
+   the name **uppercased** and `-` turned into `_`, so `--hostname` is read as
+   `"$RECIPE_ARG_HOSTNAME"`. Never `$RECIPE_ARG_hostname`: that variable is
+   never set, and under `set -Eeuo pipefail` the recipe aborts the moment it is
+   touched. `lint` refuses a lowercase reference, and refuses a recipe that
+   reads `RECIPE_ARG_*` without ever calling `recipe_parse_args`.
 5. Source `${OMARCHY_RECIPES_LIB:?}/recipe.sh` when helper functions are needed.
-6. Implement the `check`, `apply`, and `undo` action protocol. If undo is declared `none`, implement `undo` by clearly reporting it is unsupported and returning non-zero.
+6. Implement the `check`, `apply`, and `undo` action protocol. The runner
+   executes the file as `recipe.sh check` (and `apply`, `undo`), so the script
+   must dispatch on its first argument and every one of the three must reach
+   real code. Either shape works:
+
+   ```bash
+   case "${1:-}" in
+     check) ... ;;
+     apply) ... ;;
+     undo)  ... ;;
+     *) recipe_die "usage: $0 {check|apply|undo}" ;;
+   esac
+   ```
+
+   or three functions named `check`, `apply`, `undo` with `"${1:-}" "${@:2}"`
+   as the **last line** of the file. Defining the functions and never calling
+   them is the commonest way to produce a recipe that does nothing and reports
+   success; `lint` refuses it. If undo is declared `none`, implement `undo` by
+   clearly reporting it is unsupported and returning non-zero.
 
 ## Length
 
-Write the shortest recipe that is actually correct, and stop. The recipes that
+Write the shortest recipe that is actually correct. Short means no padding; it
+never means leaving out the dispatcher or one of the three actions — a recipe
+that defines its functions and never calls them is not short, it is broken. The
+recipes that
 ship with this project run 46-229 lines; a one-setting change belongs at the
 short end.
 

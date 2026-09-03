@@ -517,6 +517,9 @@ class AgentAdapterTests(unittest.TestCase):
             ("leading paren", 'case "$1" in\n  (check)\n  (apply)\n  (undo)\nesac'),
             ("alternation", 'case "$1" in\n  check|status)\n  apply|do)\n  undo|revert)\nesac'),
             ("case on one line", 'case "$1" in check)\n  apply)\n  undo)\nesac'),
+            # Functions are a legitimate handler shape -- when something calls them.
+            ("functions + dispatch", 'check() { :; }\napply() { :; }\nundo() { :; }\n"${1:-}" "${@:2}"\n'),
+            ("functions + bare $1", 'check() { :; }\napply() { :; }\nundo() { :; }\n"$1" "$@"\n'),
         ]:
             with self.subTest(form=label):
                 self.assertEqual(lint.actions_declared(body), {"check", "apply", "undo"})
@@ -526,12 +529,59 @@ class AgentAdapterTests(unittest.TestCase):
         for label, body in [
             ("only one branch", 'case "$1" in\n  check)\nesac'),
             ("only prose", 'echo "run check) apply) undo) please"'),
-            # The dangerous false negative: shell functions named after the
-            # actions are not case branches and the runner never reaches them.
-            ("function definitions", 'check() { :; }\napply() { :; }\nundo() { :; }'),
+            # The real generated failure: all three functions defined, then the
+            # file ends. Nothing dispatches, so `recipe.sh check` runs top to
+            # bottom, defines them, and exits 0 having done nothing. Verified
+            # by running it -- no output, success. This must stay refused.
+            ("functions, never called", 'check() { :; }\napply() { :; }\nundo() { :; }'),
         ]:
             with self.subTest(form=label):
                 self.assertNotEqual(lint.actions_declared(body), {"check", "apply", "undo"})
+
+    def test_undispatched_functions_get_a_message_that_names_the_real_fix(self):
+        """"no `check)` branch" sends the author to add a case branch. The fix is
+        to call the function, and a retrying model follows whatever the message
+        says."""
+        body = ("#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+                "# @recipe.id r\n# @recipe.title T\n# @recipe.description D\n"
+                "# @recipe.category System\n# @recipe.privilege user\n"
+                "# @recipe.undo none\n# @recipe.risk low\n"
+                "check() { recipe_state configured x; }\napply() { :; }\nundo() { :; }\n")
+        report = authoring.draft_report(body)
+        messages = [f["message"] for f in report["findings"] if f["rule"] == "missing-action"]
+        self.assertEqual(len(messages), 3)
+        for m in messages:
+            self.assertIn("nothing ever calls it", m)
+            self.assertIn('"$1"', m)
+
+    def _param_recipe(self, check_body):
+        return ("#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+                "# @recipe.id r\n# @recipe.title T\n# @recipe.description D\n"
+                "# @recipe.category System\n# @recipe.privilege user\n"
+                "# @recipe.undo none\n# @recipe.risk low\n"
+                "# @param hostname string required=true label=\"Hostname\"\n"
+                "case \"${1:-}\" in\n"
+                f"  check) shift || true\n  {check_body}\n  recipe_state configured x ;;\n"
+                "  apply) : ;;\n  undo) : ;;\nesac\n")
+
+    def test_lowercase_parameter_variable_is_refused(self):
+        """recipe_parse_args exports RECIPE_ARG_HOSTNAME. The lowercase name is
+        never set, so this passed lint and died on Apply under set -u. A
+        generated recipe did exactly this, eight times over."""
+        body = self._param_recipe('recipe_parse_args "$@"\n  echo "$RECIPE_ARG_hostname"')
+        rules = [f["rule"] for f in authoring.draft_report(body)["findings"]]
+        self.assertIn("recipe-arg-case", rules)
+
+    def test_reading_parameters_without_parsing_them_is_refused(self):
+        body = self._param_recipe('echo "$RECIPE_ARG_HOSTNAME"')
+        rules = [f["rule"] for f in authoring.draft_report(body)["findings"]]
+        self.assertIn("recipe-arg-without-parse", rules)
+
+    def test_correctly_read_parameters_are_clean(self):
+        body = self._param_recipe('recipe_parse_args "$@"\n  echo "$RECIPE_ARG_HOSTNAME"')
+        rules = [f["rule"] for f in authoring.draft_report(body)["findings"]]
+        self.assertNotIn("recipe-arg-case", rules)
+        self.assertNotIn("recipe-arg-without-parse", rules)
 
     def test_bare_sudo_is_refused(self):
         """A recipe from the menu has no terminal, so bare sudo cannot prompt.

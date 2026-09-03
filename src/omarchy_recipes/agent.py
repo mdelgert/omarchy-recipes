@@ -501,7 +501,12 @@ Hard requirements, all enforced by `omarchy-recipes lint`:
     @recipe.undo       restore | command | none
     @recipe.risk       low | medium | high
 - do NOT declare @recipe.generated-with-ai or @recipe.reviewed; the engine stamps those
-- implement all three of `check)`, `apply)`, and `undo)`
+- the script is run as `recipe.sh check`, `recipe.sh apply`, `recipe.sh undo`,
+  so it must dispatch on its first argument and all three must reach real code.
+  Either a `case "${{1:-}}" in check) … ;; apply) … ;; undo) … ;; esac`, or
+  three functions named check/apply/undo followed by `"${{1:-}}" "${{@:2}}"` as the
+  LAST line. Defining the functions and never calling them is the commonest way
+  to produce a recipe that does nothing and reports success
 - `check` must not modify anything, and must end by calling
   `recipe_state configured|not-configured "detail"`
 - call `recipe_backup_file` (or `recipe_mark_absent` when the target does not
@@ -519,7 +524,10 @@ Hard requirements, all enforced by `omarchy-recipes lint`:
   `@param name type=string` is rejected; only the attributes after the type are
   `key=value`
 
-Length. Write the shortest recipe that is actually correct, and stop. The
+Length. Write the shortest recipe that is actually correct. Short means no
+padding; it never means leaving out the dispatcher or one of the three actions —
+a recipe that defines its functions and never calls them is not short, it is
+broken. The
 recipes that ship with this project run 46-229 lines, and a one-setting change
 belongs at the short end of that. Do not pad it: no capability probes for tools
 the facts above already show are present, no alternative branches for package
@@ -528,6 +536,9 @@ gives you, no commentary restating what the code plainly does. Every extra line
 is a line the user has to read before they can trust it — this project's whole
 claim is that a generated recipe is auditable, and a 300-line script for a
 one-line change is not.
+- read parameters by calling `recipe_parse_args "$@"` first; it exports each as
+  `RECIPE_ARG_<NAME>` UPPERCASED — `--hostname` is `"$RECIPE_ARG_HOSTNAME"`,
+  never `$RECIPE_ARG_hostname`, which is unset and aborts under `set -u`
 - quote every expansion, including "$RECIPE_ARG_*"
 
 Reply with ONE JSON object and nothing else:
