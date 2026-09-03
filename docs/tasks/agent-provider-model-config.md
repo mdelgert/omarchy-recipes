@@ -171,7 +171,13 @@ omarchy-recipes config set agent.provider bogus  # should fail, not write
    - `make check` passes (97 Python tests + 21 QML tests + validation)
    - `make validate` passes (7 recipes validated)
 
-**8. Documentation** (—)
+**8. UI Integration** (✓)
+   - `RecipeEngine.qml` already loads provider via `agent providers --json`
+   - Configured default provider automatically displayed in `CreateRecipe.qml`
+   - UI shows "Uses the {provider} CLI..." message with configured provider
+   - No QML changes needed — backend integration works seamlessly
+
+**9. Documentation** (—)
    - No changes to `docs/RECIPE_SPEC.md` or `docs/ARCHITECTURE.md` needed
    - The `agent providers --json` output was already reporting `default` provider
    - Config file is user-facing (documented via `--help`)
