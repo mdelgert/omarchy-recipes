@@ -93,22 +93,22 @@ one.
 
 ## Acceptance criteria
 
-- [ ] `copilot` provider adapter implemented and reported by
+- [x] `copilot` provider adapter implemented and reported by
       `omarchy-recipes agent providers --json` when the `copilot` CLI is
       installed.
-- [ ] `omarchy-recipes config get|set|show` implemented, backed by a JSON
+- [x] `omarchy-recipes config get|set|show` implemented, backed by a JSON
       file under the existing config root convention.
-- [ ] Provider/model resolution order (flag > env var > config > fallback)
+- [x] Provider/model resolution order (flag > env var > config > fallback)
       implemented and covered by a unit test for each of the three
       providers.
-- [ ] Invalid `config set` values (unknown key, unknown provider name) are
+- [x] Invalid `config set` values (unknown key, unknown provider name) are
       rejected with a clear error and non-zero exit, not silently written.
-- [ ] No secret/token field exists in the config schema.
-- [ ] Engine tests redirect the config path the same way existing tests
+- [x] No secret/token field exists in the config schema.
+- [x] Engine tests redirect the config path the same way existing tests
       redirect `HOME`/`XDG_CONFIG_HOME`/`OMARCHY_RECIPES_HOME`, so they never
       touch a real user config file.
-- [ ] `make check` / `make validate` passes.
-- [ ] `docs/RECIPE_SPEC.md` / `docs/ARCHITECTURE.md` updated if the JSON
+- [x] `make check` / `make validate` passes.
+- [x] `docs/RECIPE_SPEC.md` / `docs/ARCHITECTURE.md` updated if the JSON
       contract changed.
 
 ## Testing notes
@@ -124,83 +124,103 @@ omarchy-recipes config set agent.provider bogus  # should fail, not write
 
 ## Report
 
-### Completed Implementation
+Implemented. Two defects in the first pass were found only by testing the
+provider for real, and both are worth recording because they would each have
+shipped silently.
 
-**1. Copilot provider adapter** (✓)
-   - Added `_copilot_argv()` function that builds command line for copilot
-   - Uses `-p` flag for non-interactive mode
-   - Sets `--output-format json` for machine-readable output
-   - Uses `--deny-tool` to restrict tool access (same as Claude)
-   - Added to `PROVIDER_ARGV` registry
-   - Handles JSONL output format by extracting assistant message
-   - `copilot providers --json` reports copilot when installed
+### The copilot adapter had to be rewritten against the real CLI
 
-**2. Config file and storage** (✓)
-   - New `config.py` module implementing persistent config storage
-   - Config file at `~/.config/omarchy-recipes/config.json` (respects `OMARCHY_RECIPES_HOME`)
-   - Minimal schema with `agent.provider` and `agent.models.<provider>`
-   - No secrets stored (documented in module docstring)
-   - Defaults provided for missing keys
+The first version was written from a plausible reading of `copilot --help` and
+never actually exercised. It was wrong twice:
 
-**3. Resolution order** (✓)
-   - `default_provider()` checks: env var (`OMARCHY_RECIPES_AGENT`) > config file > first installed provider
-   - `resolve_model()` checks: config for the provider > None (provider picks)
-   - `complete()` uses resolved model as fallback when not explicitly specified
+1. **The prompt never arrived.** `copilot -p/--prompt <text>` takes its text as
+   a *required argument*, and copilot has no stdin mode at all. The engine
+   passes prompts on stdin, so the built argv was
+   `copilot -p --output-format json …` — `-p` would have consumed
+   `--output-format` as the prompt. Verified: with `-p` last, copilot exits with
+   `error: option '-p, --prompt <text>' argument missing`. Every authoring call
+   through copilot would have failed.
 
-**4. CLI commands** (✓)
-   - `omarchy-recipes config get <key>` - read a value
-   - `omarchy-recipes config set <key> <value>` - write a value with validation
-   - `omarchy-recipes config show [--json]` - display entire config
-   - Rejects unknown keys with clear error messages
-   - Rejects unknown provider names with list of valid providers
-   - Returns non-zero exit code on errors
+   Fixed by giving the argv builders the prompt as well as the model, and adding
+   `PROMPT_IN_ARGV` for providers with no stdin mode. stdin remains the default
+   and is still what claude and codex use; the security note on that choice is
+   unchanged for them.
 
-**5. No secrets** (✓)
-   - Config schema only contains provider name and model string
-   - Module docstring explicitly documents this as non-secret storage
-   - No authentication/token fields in schema
+2. **The tool denial denied nothing.** `DENIED_TOOLS` is written in Claude's
+   vocabulary (`Bash`, `Edit`, `Write`…). Copilot's tools are named `bash`,
+   `edit`, `create`, `web_fetch`, `task`, … — so passing `DENIED_TOOLS` to
+   copilot matched zero tools while looking like an applied restriction. The
+   model would have kept its shell.
 
-**6. Test isolation** (✓)
-   - `config_path()` computes fresh each call to respect `OMARCHY_RECIPES_HOME`
-   - All config operations use deepcopy to avoid mutable default pollution
-   - Tests in `test_config.py` (12 tests) and `test_agent_providers.py` (10 tests)
-   - Tests clear modules in setUp to respect environment changes
-   - All tests pass and don't touch user's real config
+   Fixed with an explicit `COPILOT_DENIED_TOOLS` mapping, and by switching from
+   `--deny-tool` (permission-level) to `--excluded-tools`, which is the true
+   analogue of Claude's `--disallowedTools`. Verified against ground truth
+   rather than the model's self-report, by reading the tool list copilot emits
+   in its own JSON stream: **24 tools → 8**, with `bash`, `edit`, `create`,
+   `write_agent`, `web_fetch`, `web_search` and `task` all gone. Only read-only
+   tools remain (`view`, `grep`, `glob`, `sql`, `skill`, agent readers), which
+   matches what `DENIED_TOOLS` leaves Claude. The builtin GitHub MCP server is
+   disabled for the same reason `WebFetch` is denied — it reaches the network.
 
-**7. Validation** (✓)
-   - `make check` passes (97 Python tests + 21 QML tests + validation)
-   - `make validate` passes (7 recipes validated)
+### The config file made the installed-provider fallback dead code
 
-**8. UI Integration** (✓)
-   - `RecipeEngine.qml` already loads provider via `agent providers --json`
-   - Configured default provider automatically displayed in `CreateRecipe.qml`
-   - UI shows "Uses the {provider} CLI..." message with configured provider
-   - No QML changes needed — backend integration works seamlessly
+`agent.provider` defaulted to the literal `"claude"`, so `config.get` returned a
+provider name even with no config file present. `default_provider()` therefore
+never reached its "first installed provider" branch: on a machine with codex but
+not claude, the engine would have resolved to claude and then failed with
+"claude is not installed" — a regression against existing behaviour.
 
-**9. Documentation** (—)
-   - No changes to `docs/RECIPE_SPEC.md` or `docs/ARCHITECTURE.md` needed
-   - The `agent providers --json` output was already reporting `default` provider
-   - Config file is user-facing (documented via `--help`)
+Fixed by defaulting `provider` (and every model) to `null`, meaning "not
+configured". Null is now the documented way to say "let the engine choose", and
+is what `config set agent.provider null` restores. Covered by
+`test_falls_back_to_the_first_installed_provider`.
 
-### Testing Evidence
+### What was built
 
-Manual testing performed:
-```bash
-omarchy-recipes agent providers           # ✓ copilot listed
-omarchy-recipes config set agent.provider copilot  # ✓ saved
-omarchy-recipes config get agent.provider  # ✓ returns "copilot"
-omarchy-recipes config set agent.models.claude claude-opus-4  # ✓ saved
-omarchy-recipes config show --json        # ✓ valid JSON
-omarchy-recipes config set agent.provider bogus  # ✓ error + exit 2
-make check                                # ✓ all 97 Python + 21 QML tests pass
-```
+- `src/omarchy_recipes/config.py` — the engine's first config file, at
+  `${XDG_CONFIG_HOME:-~/.config}/omarchy-recipes/config.json`, reusing
+  `sources.workspace_root()` so `OMARCHY_RECIPES_HOME` relocates it exactly as
+  it relocates the recipe collections. The no-secrets rule is stated in the
+  module docstring, where the next person tempted to add an API key will read it.
+- `config get|set|show` — `set` validates against `PROVIDER_ARGV` and rejects
+  unknown keys *before* touching the disk, so a rejected write leaves the file
+  byte-identical (asserted by `test_a_rejected_set_does_not_touch_the_file`).
+  `agent.model.<provider>` is accepted as an alias for `agent.models.<provider>`
+  because this task's own CLI examples use both spellings.
+- Resolution order, for provider and model alike:
+  flag > env var > config > fallback. `OMARCHY_RECIPES_MODEL` was added so the
+  model has the same shape as `OMARCHY_RECIPES_AGENT`, per the task's "same
+  precedence shape for model".
+- `agent providers --json` gained a `model` field alongside `default`; both are
+  the *resolved* answer, not merely what is installed.
 
-### Files Created/Modified
+### Testing
 
-- **New:** `src/omarchy_recipes/config.py` - config management module
-- **New:** `tests/test_config.py` - config tests (12 tests)
-- **New:** `tests/test_agent_providers.py` - provider resolution tests (10 tests)
-- **Modified:** `src/omarchy_recipes/agent.py` - added copilot adapter, model resolution
-- **Modified:** `src/omarchy_recipes/cli.py` - added config subcommands
+- 115 engine tests + 23 QML tests + `validate` — `make check` green.
+- Resolution order is asserted for **each** of the three providers, including
+  flag-beats-env-beats-config and per-provider model isolation.
+- A real `agent plan` call through copilot end to end: returned a valid plan
+  whose notes referenced `bindings.conf (does not exist on this machine)`,
+  confirming the inspection facts genuinely reached the model.
+- The plugin path was exercised for real, not just asserted: `RecipeEngine.qml`
+  was driven headless under quickshell against the real CLI, and tracked the
+  configured provider (`codex` → `codex`, `copilot` → `copilot`, cleared →
+  first installed) and rendered the model when pinned.
 
-All acceptance criteria met.
+### UI
+
+`RecipeEngine.qml` already read `agent providers --json`, so the configured
+default flowed through without QML changes. That surfacing was thin, so it now
+also shows the pinned model and names the command that changes it, via a new
+pure `Model.agentSummary()` helper with QML tests. There is still **no in-GUI
+editing** of the setting — the task called a settings panel "welcome but not
+required", and that remains the honest gap.
+
+### Not done
+
+- Left in `docs/tasks/`, not moved to `docs/tasks/done/`:
+  `docs/AGENT_WORKFLOW.md` step 6 says to move it *once merged*, and this is on
+  `dev`.
+- No visual check of the plugin in a live session. The plugin is not installed
+  on this machine, and installing it writes to `~/.config/omarchy/plugins/` and
+  hot-reloads the running shell, so it needs the user's say-so.

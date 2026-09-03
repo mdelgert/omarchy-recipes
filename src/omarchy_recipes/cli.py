@@ -346,12 +346,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "agent":
             if args.agent_command == "providers":
                 rows = [p.to_dict() for p in agent_mod.providers()]
+                # `default` and `model` are what would actually be invoked, with
+                # the env var and config file already resolved — not merely what
+                # happens to be installed. Frontends show this so the user is
+                # never guessing which CLI just read their machine.
+                chosen = agent_mod.default_provider()
+                model = agent_mod.resolve_model(chosen)
                 if args.json:
-                    emit({"providers": rows, "default": agent_mod.default_provider()})
+                    emit({"providers": rows, "default": chosen, "model": model})
                 else:
                     for row in rows:
                         state = "available" if row["available"] else row["reason"]
-                        print(f"{row['name']:10} {state}")
+                        mark = "  (default)" if row["name"] == chosen else ""
+                        print(f"{row['name']:10} {state}{mark}")
+                    print(f"model: {model or '(provider default)'}")
                 return 0
 
             if args.agent_command == "plan":

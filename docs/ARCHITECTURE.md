@@ -70,13 +70,26 @@ same envelope carries `error` and the process exits non-zero.
 | `history --json [<id>] [--limit n]` | `runs` | newest first |
 | `log --json <id> [--run <run-id>]` | `run`, `stdout`, `stderr` | captured output of one run |
 | `validate --json` | `recipes`, `problems`, `ok` | exits 2 when a recipe is malformed |
+| `agent providers --json` | `providers`, `default`, `model` | `default`/`model` are the *resolved* choice, not just what is installed |
+| `config show --json` | `config` | the whole settings file |
 
 `--json` must precede the recipe id for `check`, `run`, and `undo`, because
 everything after the id is the recipe's own parameter list. Passing it later is
 refused with an explanatory error rather than guessed at.
 
-`OMARCHY_RECIPES_ROOT` overrides the directory the `recipes/` tree is read from.
-It relocates the engine; it is not a recipe-source feature.
+`config get` and `config set` are deliberately outside the envelope: they print
+a bare JSON value and a one-line confirmation respectively, so they compose with
+`$(...)` in a shell without a JSON parser. `config show --json` is the form a
+frontend consumes.
+
+Engine environment overrides:
+
+| Variable | Effect |
+| --- | --- |
+| `OMARCHY_RECIPES_ROOT` | directory the `recipes/` tree is read from; relocates the engine, not a recipe-source feature |
+| `OMARCHY_RECIPES_HOME` | user workspace: the recipe collections *and* `config.json` |
+| `OMARCHY_RECIPES_AGENT` | agent provider; outranks the config file, for scripting and CI |
+| `OMARCHY_RECIPES_MODEL` | agent model; outranks the config file, for scripting and CI |
 
 ### Tolerant discovery
 
@@ -112,6 +125,35 @@ apply run. A recipe whose target path or resource is chosen by a parameter can
 only reverse the right thing if undo sees the values the apply used. Secret
 values are never recorded and so are never replayed; values that no longer
 validate are dropped so undo falls back to the recipe's own defaults.
+
+## Config layout
+
+```text
+${XDG_CONFIG_HOME:-~/.config}/omarchy-recipes/
+├── config.json
+└── recipes/
+    ├── local/
+    └── community/
+```
+
+`config.json` holds authoring settings only — which agent provider to use, and
+per provider which model:
+
+```json
+{"agent": {"provider": "copilot", "models": {"claude": null, "copilot": null, "codex": null}}}
+```
+
+`null` means "not configured": the engine falls back to the first installed
+provider, and lets each provider choose its own model. Resolution order is
+flag > environment variable > this file > fallback, for both.
+
+No secret ever goes in this file. `claude`, `copilot`, and `codex` each own
+their own login state; the engine stores a provider name and a model name and
+nothing else, which is what keeps the file safe to copy between machines or
+paste into a bug report.
+
+`OMARCHY_RECIPES_HOME` relocates this whole directory, which is how the tests
+avoid reading or writing a developer's real settings.
 
 ## State layout
 

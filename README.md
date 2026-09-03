@@ -83,7 +83,7 @@ Your own recipes and run history live outside the plugin folder and survive it.
 Remove them only if you want them gone:
 
 ```bash
-rm -rf ~/.config/omarchy-recipes                                 # your recipes
+rm -rf ~/.config/omarchy-recipes                                 # your recipes and settings
 rm -rf "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-recipes"   # run history + backups
 rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-recipes-demo"  # example recipes' demo files
 ```
@@ -169,9 +169,22 @@ Runner resolution and the development loop:
 Press `Ctrl+N` in the menu, or from the command line:
 
 ```bash
-./bin/omarchy-recipes agent providers                      # claude, codex
+./bin/omarchy-recipes agent providers                      # claude, codex, copilot
 ./bin/omarchy-recipes agent plan "Add a hotkey Super+Alt+Y that opens Firefox"
 ```
+
+Pick which one answers, once, instead of passing `--provider` every time:
+
+```bash
+./bin/omarchy-recipes config set agent.provider copilot
+./bin/omarchy-recipes config set agent.model.claude claude-sonnet-4.5
+./bin/omarchy-recipes config show
+```
+
+Settings live in `~/.config/omarchy-recipes/config.json` and hold a provider
+name and a model name — never a credential; each CLI owns its own login. A
+`--provider`/`--model` flag still wins for one call, and
+`OMARCHY_RECIPES_AGENT`/`OMARCHY_RECIPES_MODEL` still win for scripting.
 
 The agent inspects the machine, declares what it would touch, and the engine
 checks that against reality — a shortcut that is already bound stops the flow
@@ -191,9 +204,11 @@ echo '{"resources":[{"type":"keybinding","value":"SUPER + RETURN"}]}' \
 ./bin/omarchy-recipes contribute my-recipe         # dry-run pull request plan
 ```
 
-Each response is an object stamped `{"schemaVersion": 1, ...}`. For `check`,
-`run`, and `undo`, `--json` goes before the recipe id — everything after the id
-is the recipe's own parameter list. The full contract is in
+Each `--json` response is an object stamped `{"schemaVersion": 1, ...}`. For
+`check`, `run`, and `undo`, `--json` goes before the recipe id — everything after
+the id is the recipe's own parameter list. (`config get`/`config set` are the
+exception: they print a bare value and a confirmation line, so they compose in a
+shell without a JSON parser.) The full contract is in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 State is stored under:
@@ -202,17 +217,20 @@ State is stored under:
 ${XDG_STATE_HOME:-~/.local/state}/omarchy-recipes/
 ```
 
-Recipes are discovered from three collections, in trust order:
+Settings and your own recipes live under:
 
 ```text
-<checkout>/recipes/                           bundled    reviewed upstream
+~/.config/omarchy-recipes/config.json         agent provider + model, never secrets
 ~/.config/omarchy-recipes/recipes/local/      local      written here, by you or an agent
 ~/.config/omarchy-recipes/recipes/community/  community  from another collection
+<checkout>/recipes/                           bundled    reviewed upstream
 ```
 
-A local or community recipe can never take an id a bundled one already claimed.
-`OMARCHY_RECIPES_ROOT` points the engine at a different checkout;
-`OMARCHY_RECIPES_HOME` relocates the user workspace.
+Recipes are discovered from those three collections in trust order — bundled,
+local, community — and a local or community recipe can never take an id a
+bundled one already claimed. `OMARCHY_RECIPES_ROOT` points the engine at a
+different checkout; `OMARCHY_RECIPES_HOME` relocates the user workspace,
+settings file included.
 
 ## Command line
 
@@ -225,7 +243,8 @@ A local or community recipe can never take an id a bundled one already claimed.
 ./bin/omarchy-recipes undo example-config-value
 ```
 
-Every command also speaks JSON, which is what the frontends consume:
+Almost every command also speaks JSON, which is what the frontends consume
+(`config get`/`config set` are the exception noted above):
 
 ```bash
 ./bin/omarchy-recipes list --json                 # recipes + any that failed to parse

@@ -39,6 +39,29 @@ DEFAULT_TIMEOUT = 240
 # text, not to operate the machine; inspection reaches it as data in the prompt.
 DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task"]
 
+# The same restriction, expressed in Copilot's tool vocabulary. Copilot names
+# its tools differently, so handing it DENIED_TOOLS verbatim would deny nothing
+# at all — every name would simply fail to match, and the denial would look
+# applied while the model kept its shell. Verified against `copilot --help` and
+# against the tool list Copilot reports in its own JSON stream:
+#
+#   Bash          -> bash, read_bash, stop_bash, list_bash
+#   Edit          -> edit
+#   Write         -> create, write_agent
+#   WebFetch      -> web_fetch, fetch_copilot_cli_documentation
+#   WebSearch     -> web_search
+#   Task          -> task
+#   NotebookEdit  -> (no equivalent)
+#
+# Read-only inspection (view, grep, glob) is deliberately left in place: that is
+# what DENIED_TOOLS leaves Claude as well.
+COPILOT_DENIED_TOOLS = [
+    "bash", "read_bash", "stop_bash", "list_bash",
+    "edit", "create", "write_agent",
+    "web_fetch", "fetch_copilot_cli_documentation", "web_search",
+    "task",
+]
+
 
 @dataclass
 class Provider:
@@ -51,7 +74,7 @@ class Provider:
         return {"name": self.name, "available": self.available, "reason": self.reason}
 
 
-def _claude_argv(model: str | None) -> list[str]:
+def _claude_argv(model: str | None, prompt: str) -> list[str]:
     argv = ["claude", "-p", "--output-format", "json"]
     if model:
         argv += ["--model", model]
@@ -59,34 +82,46 @@ def _claude_argv(model: str | None) -> list[str]:
     return argv + ["--disallowedTools", *DENIED_TOOLS]
 
 
-def _codex_argv(model: str | None) -> list[str]:
+def _codex_argv(model: str | None, prompt: str) -> list[str]:
     argv = ["codex", "exec", "--skip-git-repo-check"]
     if model:
         argv += ["--model", model]
     return argv
 
 
-def _copilot_argv(model: str | None) -> list[str]:
-    argv = ["copilot", "-p"]
+def _copilot_argv(model: str | None, prompt: str) -> list[str]:
+    # Copilot has no stdin mode: `-p` requires its text as an argument, and
+    # invoking it without one fails outright. So the prompt travels in argv here
+    # rather than on stdin. It sits immediately after `-p`, where exactly one
+    # flag consumes it and it can never be re-read as an option itself.
+    argv = ["copilot", "-p", prompt, "--output-format", "json"]
     if model:
         argv += ["--model", model]
-    argv += ["--output-format", "json"]
-    # Restrict tool access the same way Claude does
-    argv += ["--deny-tool", *DENIED_TOOLS]
-    return argv
+    # Copilot refuses to run non-interactively without --allow-all-tools; it is
+    # the tool exclusions below, not a permission prompt, that keep the model
+    # away from the machine. The builtin GitHub MCP server is switched off for
+    # the same reason WebFetch is denied: it reaches the network.
+    argv += ["--allow-all-tools", "--disable-builtin-mcps"]
+    # Variadic flag: keep it last so it cannot swallow another argument.
+    return argv + ["--excluded-tools", *COPILOT_DENIED_TOOLS]
 
 
-PROVIDER_ARGV: dict[str, Callable[[str | None], list[str]]] = {
+PROVIDER_ARGV: dict[str, Callable[[str | None, str], list[str]]] = {
     "claude": _claude_argv,
     "codex": _codex_argv,
     "copilot": _copilot_argv,
 }
 
+# Providers whose CLI takes the prompt as a command-line argument. Everything
+# else receives it on stdin, which is preferred and is the default: the prompt
+# is long, contains newlines, and on stdin it can never be parsed as a flag.
+PROMPT_IN_ARGV = frozenset({"copilot"})
+
 
 def providers() -> list[Provider]:
     out = []
     for name, builder in PROVIDER_ARGV.items():
-        argv = builder(None)
+        argv = builder(None, "")
         found = shutil.which(argv[0])
         out.append(Provider(
             name=name,
@@ -98,16 +133,29 @@ def providers() -> list[Provider]:
 
 
 def default_provider() -> str:
+    """Which provider to use when the caller did not name one.
+
+    Order, most specific first:
+
+        --provider flag        handled by the caller, in complete()
+        OMARCHY_RECIPES_AGENT  kept for scripting and CI
+        config agent.provider  what `config set agent.provider` writes
+        first installed        whatever is actually on this machine
+
+    A null or absent `agent.provider` means "not configured" and falls through
+    to the last rule, which is why the shipped default for it is null rather
+    than a provider name.
+    """
     from . import config
-    # Resolution order: env var > config > first installed provider
+
     override = os.environ.get("OMARCHY_RECIPES_AGENT")
     if override:
         return override
-    try:
-        configured = config.get("agent.provider")
-        return configured
-    except RecipeError:
-        pass
+    # Read the file directly rather than via config.get: a corrupt config should
+    # surface as an error the user can fix, not be swallowed as "unconfigured".
+    configured = (config.load().get("agent") or {}).get("provider")
+    if configured:
+        return str(configured)
     for provider in providers():
         if provider.available:
             return provider.name
@@ -115,18 +163,24 @@ def default_provider() -> str:
 
 
 def resolve_model(provider: str | None = None) -> str | None:
-    """Get the configured default model for a provider.
+    """Which model to use for `provider`, or None to let the provider decide.
 
-    Resolution order: explicit model > env var > config > None (provider picks).
+    The same shape as default_provider():
+
+        --model flag                  handled by the caller, in complete()
+        OMARCHY_RECIPES_MODEL         kept for scripting and CI
+        config agent.models.<name>    what `config set agent.models.X` writes
+        None                          the provider picks its own default
     """
     from . import config
-    p = provider or default_provider()
-    try:
-        configured = config.get(f"agent.models.{p}")
-        return configured
-    except RecipeError:
-        pass
-    return None
+
+    name = provider or default_provider()
+    override = os.environ.get("OMARCHY_RECIPES_MODEL")
+    if override:
+        return override
+    models = (config.load().get("agent") or {}).get("models") or {}
+    configured = models.get(name)
+    return str(configured) if configured else None
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -179,14 +233,18 @@ def complete(prompt: str, *, provider: str | None = None, model: str | None = No
         raise RecipeError(f"unknown agent provider {name!r}; available: {', '.join(sorted(PROVIDER_ARGV))}")
     # Use explicit model, or fall back to configured default
     resolved_model = model or resolve_model(name)
-    argv = builder(resolved_model)
+    argv = builder(resolved_model, prompt)
     if not shutil.which(argv[0]):
         raise RecipeError(f"{argv[0]} is not installed; set OMARCHY_RECIPES_AGENT to another provider")
 
+    # The prompt goes on stdin: it is long, it contains newlines, and a variadic
+    # flag must never be able to consume it. A provider in PROMPT_IN_ARGV has no
+    # stdin mode and already carries the prompt in argv; it gets an empty stdin
+    # rather than inheriting this process's, so it can never block on a read.
+    stdin_text = "" if name in PROMPT_IN_ARGV else prompt
+
     try:
-        # The prompt goes on stdin: it is long, it contains newlines, and a
-        # variadic flag must never be able to consume it.
-        proc = subprocess.run(argv, input=prompt, text=True, capture_output=True,
+        proc = subprocess.run(argv, input=stdin_text, text=True, capture_output=True,
                               timeout=timeout, check=False)
     except subprocess.TimeoutExpired as e:
         raise RecipeError(f"{name} did not respond within {timeout}s") from e
@@ -212,19 +270,32 @@ def complete(prompt: str, *, provider: str | None = None, model: str | None = No
 
 
 def _extract_copilot_response(jsonl_output: str) -> str:
-    """Extract the assistant's final message from copilot's JSONL output."""
-    for line in jsonl_output.strip().split("\n"):
-        if not line.strip():
+    """Extract the assistant's final message from copilot's JSONL output.
+
+    Copilot streams one JSON object per line — status, telemetry, and message
+    events interleaved — rather than returning a single object the way
+    `claude --output-format json` does. The reply is the *last* `assistant.message`:
+    earlier ones are intermediate turns, and it is the final answer that carries
+    the recipe. Unparsable lines are skipped rather than fatal, since the stream
+    also carries lines this code has no contract with.
+    """
+    reply = ""
+    for line in jsonl_output.splitlines():
+        line = line.strip()
+        if not line:
             continue
         try:
             obj = json.loads(line)
-            if obj.get("type") == "assistant.message":
-                content = obj.get("data", {}).get("content", "")
-                if content:
-                    return content
         except ValueError:
-            pass
-    raise RecipeError("copilot did not return a valid response")
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant.message":
+            continue
+        content = str((obj.get("data") or {}).get("content") or "")
+        if content:
+            reply = content
+    if not reply:
+        raise RecipeError("copilot returned no assistant message")
+    return reply
 
 
 # ------------------------------------------------------------------ prompts

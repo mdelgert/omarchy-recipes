@@ -458,7 +458,15 @@ class AgentAdapterTests(unittest.TestCase):
                 agent._extract_json(reply)
 
     def test_denied_tools_are_last_so_the_prompt_cannot_be_swallowed(self):
-        argv = agent.PROVIDER_ARGV["claude"](None)
+        # Builders take the prompt as well as the model: copilot has no stdin
+        # mode and carries it in argv. claude ignores it and reads stdin.
+        argv = agent.PROVIDER_ARGV["claude"](None, "PROMPT")
         self.assertEqual(argv[-len(agent.DENIED_TOOLS) - 1], "--disallowedTools")
         for tool in ["Bash", "Edit", "Write"]:
+            self.assertIn(tool, argv)
+
+    def test_copilot_denied_tools_are_last_and_use_copilot_names(self):
+        argv = agent.PROVIDER_ARGV["copilot"](None, "PROMPT")
+        self.assertEqual(argv[-len(agent.COPILOT_DENIED_TOOLS) - 1], "--excluded-tools")
+        for tool in ["bash", "edit", "create"]:
             self.assertIn(tool, argv)

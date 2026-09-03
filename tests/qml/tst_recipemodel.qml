@@ -205,4 +205,17 @@ TestCase {
     compare(Model.pathFromUrl("qrc:/nope"), "")
     compare(Model.parentDir("/home/u/plugins/x"), "/home/u/plugins")
   }
+
+  function test_agent_summary_names_the_resolved_provider() {
+    compare(Model.agentSummary("copilot", ""), "copilot")
+    compare(Model.agentSummary("claude", "claude-sonnet-4.5"), "claude (claude-sonnet-4.5)")
+  }
+
+  function test_agent_summary_is_empty_until_the_engine_answers() {
+    // The sentence is dropped entirely rather than rendered half-empty while
+    // the engine is still starting up.
+    compare(Model.agentSummary("", ""), "")
+    compare(Model.agentSummary(null, null), "")
+    compare(Model.agentSummary(undefined, "some-model"), "")
+  }
 }

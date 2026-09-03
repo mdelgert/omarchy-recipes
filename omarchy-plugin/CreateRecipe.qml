@@ -83,11 +83,16 @@ FocusScope {
         textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.WordWrap
+        // Named rather than inlined so the sentence stays readable, and so the
+        // engine's resolved provider/model is formatted in exactly one place.
+        readonly property string agent: Model.agentSummary(root.engine.agentProvider,
+                                                           root.engine.agentModel)
         text: "Describe what you want your system to do. The agent inspects this machine, "
             + "checks for conflicts, and proposes a reversible recipe. Nothing runs until you say so."
-            + (root.engine.agentProvider
-               ? "\n\nUses the " + root.engine.agentProvider + " CLI already installed on this machine, "
-                 + "with its file and shell tools switched off — it is given facts and returns text."
+            + (agent
+               ? "\n\nUses " + agent + ", already installed on this machine, with its file and "
+                 + "shell tools switched off — it is given facts and returns text.\n"
+                 + "Change it with:  omarchy-recipes config set agent.provider <name>"
                : "")
         color: Qt.darker(root.foreground, 1.3)
         font.family: root.fontFamily

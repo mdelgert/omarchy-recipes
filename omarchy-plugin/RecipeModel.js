@@ -130,6 +130,20 @@ function rowsFor(recipes, query) {
   return rows
 }
 
+// Names what will actually answer an authoring request: the provider the engine
+// resolved, plus the model when one is pinned. The engine has already applied
+// the flag/env/config precedence, so this only formats what it reported.
+//
+// Returns "" when no provider is known yet, so the caller can drop the sentence
+// entirely rather than render a half-empty one while the engine is still
+// starting up.
+function agentSummary(provider, model) {
+  var name = String(provider || "").trim()
+  if (!name) return ""
+  var pinned = String(model || "").trim()
+  return pinned ? name + " (" + pinned + ")" : name
+}
+
 // Short origin marker for the browse list. Bundled recipes get nothing: they
 // are the baseline, and badging everything would make the marker invisible.
 function sourceBadge(recipe) {

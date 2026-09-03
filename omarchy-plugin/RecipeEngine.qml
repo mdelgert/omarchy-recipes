@@ -112,8 +112,13 @@ Item {
   // every call, so nothing is remembered that the user cannot see.
   property var answers: []
   // Which provider the engine will actually invoke, so the UI can say so
-  // rather than leaving the user guessing what just read their machine.
+  // rather than leaving the user guessing what just read their machine. This is
+  // the engine's resolved answer — flag, OMARCHY_RECIPES_AGENT, and the config
+  // file already applied — not just whatever happens to be installed.
   property string agentProvider: ""
+  // The model pinned for that provider, if any. Empty means the provider picks
+  // its own default, which is the shipped state.
+  property string agentModel: ""
 
   readonly property bool authoringBusy: planning || drafting || saving
 
@@ -475,7 +480,10 @@ Item {
     stdout: StdioCollector { id: providerOut; waitForEnd: true }
     onExited: function() {
       var parsed = Model.parseResponse(providerOut.text, engine.schemaVersion)
-      if (parsed.ok) engine.agentProvider = String(parsed.data.default || "")
+      if (parsed.ok) {
+        engine.agentProvider = String(parsed.data.default || "")
+        engine.agentModel = String(parsed.data.model || "")
+      }
     }
   }
 

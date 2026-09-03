@@ -11,8 +11,9 @@ add it to `ROADMAP.md` first if it's really a whole new phase, not a task).
   ports, logs and other diagnostics, maintenance scripts.
 - Add icons to recipes.
 - Add "remix of recipes" (composing/forking existing recipes).
-- Add a configuration/model provider abstraction for AI authoring: Claude,
-  Copilot, Codex, or a self-hosted LLM.
+- Support a self-hosted / OpenAI-compatible LLM endpoint for AI authoring. The
+  provider abstraction and its config file now exist (Claude, Copilot, Codex);
+  what is left is an adapter for an endpoint the user hosts themselves.
 - Add a curated list of good example recipes for Omarchy.
 - Add agent/LLM/prompt defaults in the recipe header, plus manual
   install/uninstall instructions in the header, as documented defaults an
