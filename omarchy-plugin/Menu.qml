@@ -493,12 +493,26 @@ Item {
                 radius: Style.cornerRadius
                 color: createMouse.containsMouse ? root.selectedBackground : "transparent"
 
+                // Label and shortcut are anchored separately, rather than spaced
+                // apart inside one string, so this row's shortcut lines up with
+                // the settings row's however wide the card gets.
                 Text {
                   textFormat: Text.PlainText
                   anchors.left: parent.left
                   anchors.leftMargin: Style.spacing.rowPaddingX
                   anchors.verticalCenter: parent.verticalCenter
-                  text: "＋  Create recipe…            Ctrl+N"
+                  text: "＋  Create recipe…"
+                  color: createMouse.containsMouse ? root.selectedText : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.spacing.rowPaddingX
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "Ctrl+N"
                   color: createMouse.containsMouse ? root.selectedText : root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -530,11 +544,24 @@ Item {
                 color: settingsMouse.containsMouse ? root.selectedBackground : "transparent"
 
                 Text {
+                  id: settingsLabel
                   textFormat: Text.PlainText
                   anchors.left: parent.left
                   anchors.leftMargin: Style.spacing.rowPaddingX
                   anchors.verticalCenter: parent.verticalCenter
-                  text: "⚙  Agent settings…           Ctrl+,"
+                  text: "⚙  Agent settings…"
+                  color: settingsMouse.containsMouse ? root.selectedText : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  id: settingsShortcut
+                  textFormat: Text.PlainText
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.spacing.rowPaddingX
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "Ctrl+,"
                   color: settingsMouse.containsMouse ? root.selectedText : root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -542,11 +569,19 @@ Item {
 
                 // The provider that would actually answer, named on the row, so
                 // the current setting is visible without opening anything.
+                //
+                // Anchored between the label and the shortcut rather than to the
+                // row edge: a long provider/model pair would otherwise be drawn
+                // straight over the shortcut. It elides instead of colliding.
                 Text {
                   textFormat: Text.PlainText
-                  anchors.right: parent.right
-                  anchors.rightMargin: Style.spacing.rowPaddingX
+                  anchors.left: settingsLabel.right
+                  anchors.leftMargin: Style.spacing.md
+                  anchors.right: settingsShortcut.left
+                  anchors.rightMargin: Style.spacing.md
                   anchors.verticalCenter: parent.verticalCenter
+                  horizontalAlignment: Text.AlignRight
+                  elide: Text.ElideRight
                   text: Model.agentSummary(recipeEngine.agentProvider, recipeEngine.agentModel)
                   color: Qt.darker(settingsMouse.containsMouse ? root.selectedText : root.foreground, 1.4)
                   font.family: root.fontFamily
