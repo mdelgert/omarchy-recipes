@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from omarchy_recipes import agent, authoring, conflicts, contribution, inspection, lint, sources
+from omarchy_recipes import agent, authoring, conflicts, contribution, core, inspection, lint, sources
 from omarchy_recipes.core import RecipeError, scan
 from omarchy_recipes.inspection import DomainResult
 
@@ -456,6 +456,26 @@ class AgentAdapterTests(unittest.TestCase):
         for reply in ["no json here", "", '{"unterminated": ', '{bad json}']:
             with self.assertRaises(RecipeError, msg=repr(reply)):
                 agent._extract_json(reply)
+
+    def test_authoring_rules_state_every_fixed_value_field(self):
+        """The skill is the model's only source for these enums.
+
+        A generated recipe was refused for `@recipe.privilege sudo`: the rules
+        named the accepted values for risk and undo but not for privilege, so
+        the model had to guess, and `sudo` is the obvious guess. Whatever the
+        engine will reject has to be written down here.
+        """
+        rules = (ROOT / "skills" / "recipe-authoring" / "SKILL.md").read_text()
+        for value in sorted(core.VALID_PRIVILEGE | core.VALID_UNDO | core.VALID_RISK):
+            self.assertIn(f"`{value}`", rules, f"SKILL.md never names {value!r}")
+
+    def test_draft_prompt_states_every_fixed_value_field(self):
+        """Same contract for the prompt the engine builds around the skill."""
+        source = (ROOT / "src" / "omarchy_recipes" / "agent.py").read_text()
+        start = source.index("Hard requirements")
+        requirements = source[start:start + 1500]
+        for value in sorted(core.VALID_PRIVILEGE | core.VALID_UNDO | core.VALID_RISK):
+            self.assertIn(value, requirements, f"draft prompt never names {value!r}")
 
     def test_denied_tools_are_last_so_the_prompt_cannot_be_swallowed(self):
         # Builders take the prompt as well as the model: copilot has no stdin

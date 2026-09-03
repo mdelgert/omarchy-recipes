@@ -484,6 +484,11 @@ Hard requirements, all enforced by `omarchy-recipes lint`:
 - start with `#!/usr/bin/env bash` and `set -Eeuo pipefail`
 - declare @recipe.id, @recipe.title, @recipe.description, @recipe.category,
   @recipe.privilege, @recipe.undo, @recipe.risk
+- those last three take a fixed value and nothing else:
+    @recipe.privilege  user | mixed | root   (what the recipe needs, not how it
+                                              elevates — never `sudo`/`doas`/`pkexec`)
+    @recipe.undo       restore | command | none
+    @recipe.risk       low | medium | high
 - do NOT declare @recipe.generated-with-ai or @recipe.reviewed; the engine stamps those
 - implement all three of `check)`, `apply)`, and `undo)`
 - `check` must not modify anything, and must end by calling

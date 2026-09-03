@@ -93,6 +93,14 @@ description of the change, not a transcript.
 
 Prefer concise categories that remain useful as the collection grows: `System`, `Power`, `Applications`, `Development`, `Networking`, `Storage`, `Security`, `Omarchy`, `Desktop`.
 
+Set privilege to exactly one of `user`, `mixed`, or `root`. It describes what
+the recipe *needs*, not how it gets it — `sudo`, `doas`, and `pkexec` are not
+values:
+
+- `user`: touches only the user's own files and services
+- `mixed`: mostly user-level, with a few elevated commands
+- `root`: cannot do its job without elevation at all
+
 Set risk honestly:
 
 - `low`: local user config, easy exact restore

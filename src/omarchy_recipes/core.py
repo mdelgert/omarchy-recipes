@@ -200,12 +200,18 @@ def parse_recipe(path: Path) -> Recipe:
     privilege = meta.get("privilege", "user")
     undo = meta.get("undo", "none")
     risk = meta.get("risk", "medium")
+    # Name the accepted values. A bare "invalid privilege 'sudo'" says only that
+    # the guess was wrong, which leaves a human guessing again and gives an
+    # authoring agent nothing to correct itself with.
     if privilege not in VALID_PRIVILEGE:
-        raise RecipeError(f"{path}: invalid privilege {privilege!r}")
+        raise RecipeError(f"{path}: invalid privilege {privilege!r}; "
+                          f"expected one of: {', '.join(sorted(VALID_PRIVILEGE))}")
     if undo not in VALID_UNDO:
-        raise RecipeError(f"{path}: invalid undo {undo!r}")
+        raise RecipeError(f"{path}: invalid undo {undo!r}; "
+                          f"expected one of: {', '.join(sorted(VALID_UNDO))}")
     if risk not in VALID_RISK:
-        raise RecipeError(f"{path}: invalid risk {risk!r}")
+        raise RecipeError(f"{path}: invalid risk {risk!r}; "
+                          f"expected one of: {', '.join(sorted(VALID_RISK))}")
     known = {
         "id", "title", "description", "category", "platform", "distro", "privilege",
         "undo", "risk", "tags", "generated-with-ai", "reviewed",
