@@ -503,6 +503,36 @@ class AgentAdapterTests(unittest.TestCase):
                 report = lint.lint(path)
                 self.assertTrue(report["ok"], f"{path.name}: {report['findings']}")
 
+    def test_action_branches_are_recognised_however_they_are_written(self):
+        """`"check")` is as valid as `check)`, and the rules ask for quoting.
+
+        A generated recipe was refused with three `missing-action` errors for
+        quoting its case patterns — a working recipe, thrown away after minutes
+        of generation, because the check only matched a bare unquoted branch.
+        """
+        for label, body in [
+            ("bare", 'case "$1" in\n  check)\n  apply)\n  undo)\nesac'),
+            ("double-quoted", 'case "$1" in\n  "check")\n  "apply")\n  "undo")\nesac'),
+            ("single-quoted", "case \"$1\" in\n  'check')\n  'apply')\n  'undo')\nesac"),
+            ("leading paren", 'case "$1" in\n  (check)\n  (apply)\n  (undo)\nesac'),
+            ("alternation", 'case "$1" in\n  check|status)\n  apply|do)\n  undo|revert)\nesac'),
+            ("case on one line", 'case "$1" in check)\n  apply)\n  undo)\nesac'),
+        ]:
+            with self.subTest(form=label):
+                self.assertEqual(lint.actions_declared(body), {"check", "apply", "undo"})
+
+    def test_a_genuinely_missing_action_is_still_caught(self):
+        """The looser match must not stop the rule doing its job."""
+        for label, body in [
+            ("only one branch", 'case "$1" in\n  check)\nesac'),
+            ("only prose", 'echo "run check) apply) undo) please"'),
+            # The dangerous false negative: shell functions named after the
+            # actions are not case branches and the runner never reaches them.
+            ("function definitions", 'check() { :; }\napply() { :; }\nundo() { :; }'),
+        ]:
+            with self.subTest(form=label):
+                self.assertNotEqual(lint.actions_declared(body), {"check", "apply", "undo"})
+
     def test_bare_sudo_is_refused(self):
         """A recipe from the menu has no terminal, so bare sudo cannot prompt.
 

@@ -89,7 +89,32 @@ DANGEROUS = [
      "unquoted parameter expansion; quote it so a value with spaces cannot split"),
 ]
 
-ACTION_RE = re.compile(r"^\s*(check|apply|undo)\)", re.MULTILINE)
+# A `case` branch label: an optional `case ... in` prefix, an optional opening
+# paren, then the pattern up to `)`.
+#
+# This used to be `^\s*(check|apply|undo)\)`, which only saw a bare, unquoted
+# branch at the start of a line. `"check")` is equally valid bash — and this
+# project's own "quote every expansion" rule nudges an author toward it — so a
+# perfectly good recipe was reported as having no check, apply or undo branch
+# at all, and refused. Three wasted minutes of generation for a working recipe.
+CASE_BRANCH_RE = re.compile(r"^\s*(?:case\s+\S+\s+in\s+)?\(?\s*([^()\n;]+?)\s*\)", re.MULTILINE)
+ACTIONS = ("check", "apply", "undo")
+
+
+def actions_declared(text: str) -> set[str]:
+    """Which of check/apply/undo the recipe has a `case` branch for.
+
+    Reads every branch label and splits its alternatives, so `check)`,
+    `"check")`, `('check')` and `check|status)` all count. Only an exact word
+    counts, so a stray `)` elsewhere in the file contributes nothing.
+    """
+    found: set[str] = set()
+    for label in CASE_BRANCH_RE.findall(text):
+        for alternative in label.split("|"):
+            word = alternative.strip().strip("\"'").strip()
+            if word in ACTIONS:
+                found.add(word)
+    return found
 WRITE_RE = re.compile(r"(recipe_atomic_write|>\s*\"?\$\{?target|tee\s|sed\s+-i|>>\s*\"?\$)")
 BACKUP_RE = re.compile(r"(recipe_backup_file|recipe_mark_absent)")
 
@@ -145,8 +170,8 @@ def lint_text(text: str, path: Path | None = None) -> list[Finding]:
         findings.append(Finding("missing-strict-mode", WARNING,
                                 "add `set -Eeuo pipefail` so a failing step stops the recipe"))
 
-    actions = set(ACTION_RE.findall(text))
-    for action in ("check", "apply", "undo"):
+    actions = actions_declared(text)
+    for action in ACTIONS:
         if action not in actions:
             findings.append(Finding("missing-action", ERROR, f"no `{action})` branch; the runner calls check, apply, and undo"))
 
