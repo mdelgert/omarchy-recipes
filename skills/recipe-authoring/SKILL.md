@@ -108,6 +108,26 @@ provides; or comments restating what the code plainly does.
 18. **Services are stateful.** Preserve whether a service was enabled/running before the recipe changed it.
 19. **Sensitive values.** Do not print secrets. Mark secret inputs as `type=secret`; the engine's complete secret-redaction support is future work, so avoid recipes requiring secrets until that work is complete.
 
+## Refused outright
+
+`omarchy-recipes lint` reports these as errors, and `create` refuses to save a
+recipe that has any of them. They are listed here because a draft rejected at
+save time has already cost a full generation:
+
+- **`eval` on anything.** eval turns data into code; the project forbids it.
+- **curl-pipe-shell.** Download the artifact, verify it, then run it — never
+  `curl ... | sh`.
+- **A hard-coded credential.** No password, API key, token, or secret literal
+  belongs in a recipe. Take one as a `secret` parameter instead.
+- **Recursive delete of a root or home path.** `rm -rf /`, `rm -rf "$HOME"`
+  and their near misses. Delete the exact paths the recipe created.
+- **World-writable permissions.** `chmod 777`, `a+rwx`, `o+w`.
+- **Disabling a security control.** `setenforce 0`, `ufw disable`,
+  `iptables -F`, stopping or disabling a firewall, AppArmor, or nftables unit.
+- **Bare `sudo`.** Use `recipe_sudo` (see the privilege rule above).
+- **A missing shebang, a missing `check)`/`apply)`/`undo)` branch, or a write
+  to an existing file with no `recipe_backup_file` first.**
+
 ## Provenance
 
 Do not write `@recipe.generated-with-ai` or `@recipe.reviewed` into a draft. The
