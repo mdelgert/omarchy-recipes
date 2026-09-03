@@ -211,6 +211,38 @@ TestCase {
     compare(Model.agentSummary("claude", "claude-sonnet-4.5"), "claude (claude-sonnet-4.5)")
   }
 
+  function test_provider_options_mark_the_chosen_one() {
+    var opts = Model.providerOptions([
+      { name: "claude", available: true, reason: "" },
+      { name: "codex", available: true, reason: "" },
+      { name: "copilot", available: true, reason: "" }
+    ], "codex")
+    compare(opts.length, 3)
+    compare(opts[0].selected, false)
+    compare(opts[1].name, "codex")
+    compare(opts[1].selected, true)
+    compare(opts[1].status, "available")
+  }
+
+  function test_provider_options_list_uninstalled_providers_too() {
+    // Hiding one would make the project look like it supports fewer providers
+    // than it does; the engine reports the missing CLI when it is used.
+    var opts = Model.providerOptions([
+      { name: "claude", available: false, reason: "claude is not installed" }
+    ], "claude")
+    compare(opts.length, 1)
+    compare(opts[0].available, false)
+    compare(opts[0].status, "claude is not installed")
+    compare(opts[0].selected, true)
+  }
+
+  function test_provider_options_tolerate_missing_engine_data() {
+    compare(Model.providerOptions(null, "claude").length, 0)
+    compare(Model.providerOptions([], "").length, 0)
+    // A row with no name is dropped rather than rendered as a blank choice.
+    compare(Model.providerOptions([{ available: true }], "").length, 0)
+  }
+
   function test_agent_summary_is_empty_until_the_engine_answers() {
     // The sentence is dropped entirely rather than rendered half-empty while
     // the engine is still starting up.

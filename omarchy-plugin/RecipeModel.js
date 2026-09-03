@@ -144,6 +144,30 @@ function agentSummary(provider, model) {
   return pinned ? name + " (" + pinned + ")" : name
 }
 
+// Rows for the settings provider picker: every provider the engine has an
+// adapter for, with whether its CLI is installed and which one is chosen.
+//
+// An uninstalled provider is listed rather than hidden. Configuring one you
+// have not installed yet is legitimate — the engine reports the missing CLI
+// plainly when you actually use it — and hiding it would make the list look
+// like the project supports fewer providers than it does.
+function providerOptions(providers, selected) {
+  var out = []
+  var list = providers || []
+  for (var i = 0; i < list.length; i++) {
+    var entry = list[i] || {}
+    var name = String(entry.name || "")
+    if (!name) continue
+    out.push({
+      name: name,
+      available: !!entry.available,
+      status: entry.available ? "available" : (String(entry.reason || "") || "not installed"),
+      selected: name === String(selected || "")
+    })
+  }
+  return out
+}
+
 // Short origin marker for the browse list. Bundled recipes get nothing: they
 // are the baseline, and badging everything would make the marker invisible.
 function sourceBadge(recipe) {

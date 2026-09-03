@@ -119,6 +119,17 @@ Item {
   // The model pinned for that provider, if any. Empty means the provider picks
   // its own default, which is the shipped state.
   property string agentModel: ""
+  // Every provider the engine has an adapter for, with whether its CLI is
+  // installed. The settings view lists all of them: configuring one you have
+  // not installed yet is legitimate, and the engine says so plainly on use.
+  property var agentProviders: []
+  // Model configured per provider, so switching provider in settings shows that
+  // provider's own setting rather than the previous one's text.
+  property var agentModels: ({})
+  property bool savingConfig: false
+  property string configError: ""
+
+  signal configSaved()
 
   readonly property bool authoringBusy: planning || drafting || saving
 
@@ -249,7 +260,10 @@ Item {
       engine.problems = parsed.data.problems || []
       // Only now is the runner known to work, which is the earliest point
       // asking it anything else is worth doing.
-      if (engine.agentProvider === "") engine.loadProviders()
+      if (engine.agentProvider === "") {
+        engine.loadProviders()
+        engine.loadConfig()
+      }
     }
   }
 
@@ -470,9 +484,10 @@ Item {
   }
 
   function loadProviders() {
-    if (providerProc.running || !runnerResolved) return
+    if (providerProc.running || !runnerResolved) return false
     providerProc.command = argv(["agent", "providers", "--json"])
     providerProc.running = true
+    return true
   }
 
   Process {
@@ -481,9 +496,112 @@ Item {
     onExited: function() {
       var parsed = Model.parseResponse(providerOut.text, engine.schemaVersion)
       if (parsed.ok) {
+        engine.agentProviders = parsed.data.providers || []
         engine.agentProvider = String(parsed.data.default || "")
         engine.agentModel = String(parsed.data.model || "")
       }
+      engine.noteConfigRefresh()
+    }
+  }
+
+  // One of the post-save reads came back. The save is only complete, and only
+  // announced, once every read it was waiting on has landed.
+  function noteConfigRefresh() {
+    if (configRefreshPending === 0) return
+    configRefreshPending -= 1
+    if (configRefreshPending > 0) return
+    savingConfig = false
+    configSaved()
+  }
+
+  // ---- settings -----------------------------------------------------------
+  //
+  // Read and write the engine's config file, always through `config show` and
+  // `config set` rather than by touching JSON here. The engine validates each
+  // write and refuses an unknown provider, so this cannot store a setting the
+  // engine would then fail to read back.
+  //
+  // Nothing here ever handles a credential: the config holds a provider name
+  // and a model name, and each provider CLI owns its own login.
+
+  // Returns whether a read was actually started, so a caller waiting on the
+  // result knows whether to expect one.
+  function loadConfig() {
+    if (configProc.running || !runnerResolved) return false
+    configProc.command = argv(["config", "show", "--json"])
+    configProc.running = true
+    return true
+  }
+
+  Process {
+    id: configProc
+    stdout: StdioCollector { id: configOut; waitForEnd: true }
+    onExited: function() {
+      var parsed = Model.parseResponse(configOut.text, engine.schemaVersion)
+      if (parsed.ok) {
+        var agent = (parsed.data.config || ({})).agent || ({})
+        engine.agentModels = agent.models || ({})
+      }
+      engine.noteConfigRefresh()
+    }
+  }
+
+  // `config set` writes one key per call, so a save is a short queue run in
+  // order. A failed write stops the queue rather than leaving half the change
+  // applied and reporting success.
+  property var configQueue: []
+
+  function saveAgentConfig(provider, model) {
+    if (savingConfig || !String(provider || "")) return
+    configError = ""
+    savingConfig = true
+    var text = String(model || "").trim()
+    configQueue = [
+      ["config", "set", "agent.provider", String(provider)],
+      // Empty means "let the provider choose", which the engine stores as null.
+      ["config", "set", "agent.models." + String(provider), text === "" ? "null" : text]
+    ]
+    runNextConfigWrite()
+  }
+
+  // Reads still outstanding before a save can be announced.
+  property int configRefreshPending: 0
+
+  function runNextConfigWrite() {
+    if (configQueue.length === 0) {
+      // Re-read *before* announcing the save, and announce only once both
+      // reads land. The settings view seeds itself from these properties, so
+      // emitting configSaved() while they still hold pre-save values would
+      // visibly revert the user's choice a moment after they made it.
+      configRefreshPending = 0
+      if (loadProviders()) configRefreshPending += 1
+      if (loadConfig()) configRefreshPending += 1
+      if (configRefreshPending === 0) {
+        // Nothing could be started (no runner yet); do not hang on a reply
+        // that is never coming.
+        savingConfig = false
+        configSaved()
+      }
+      return
+    }
+    var next = configQueue[0]
+    configQueue = configQueue.slice(1)
+    configSetProc.command = argv(next)
+    configSetProc.running = true
+  }
+
+  Process {
+    id: configSetProc
+    stdout: StdioCollector { id: configSetOut; waitForEnd: true }
+    stderr: StdioCollector { id: configSetErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        engine.configQueue = []
+        engine.savingConfig = false
+        engine.configError = Model.firstLine(configSetErr.text, 200) || "could not save settings"
+        return
+      }
+      engine.runNextConfigWrite()
     }
   }
 
