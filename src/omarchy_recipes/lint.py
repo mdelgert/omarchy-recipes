@@ -76,6 +76,14 @@ DANGEROUS = [
     ("sudo-whole-script", WARNING,
      re.compile(r"^\s*sudo\s+(bash|sh)\b"),
      "elevates a whole shell; elevate the single command that needs it"),
+    # An error, not a warning: a recipe run from the menu has its output
+    # captured and no terminal attached, so this does not merely look untidy —
+    # it fails outright with "sudo: a terminal is required to read the
+    # password", which reads as a broken recipe rather than a missing prompt.
+    # Refusing at save time is the only place the author still sees it.
+    ("bare-sudo", ERROR,
+     re.compile(r"(?<!recipe_)\bsudo\s"),
+     "bare sudo cannot prompt when a recipe is run from the menu; use `recipe_sudo <command>`"),
     ("unquoted-recipe-arg", WARNING,
      re.compile(r"(?<![\"$])\$RECIPE_ARG_[A-Z0-9_]+(?![\"}])"),
      "unquoted parameter expansion; quote it so a value with spaces cannot split"),
@@ -167,6 +175,24 @@ def lint_metadata(path: Path) -> list[Finding]:
     elif "undo)" in text and "recipe_restore_file" not in text and recipe.undo == "restore":
         findings.append(Finding("undo-without-restore", WARNING,
                                 "declares undo=restore but never calls recipe_restore_file"))
+    # A warning, never an error: every recipe written before icons existed has
+    # none, and the engine already falls back to the category glyph, so this
+    # is a nudge toward a better one rather than a defect. A *malformed* icon
+    # is caught earlier, by parse_recipe, and lands as invalid-metadata above.
+    icon_values = [v.strip() for v in re.findall(r"^\s*#\s*@recipe\.icon\b(.*)$", text, re.M)]
+    if not icon_values:
+        findings.append(Finding("no-icon", WARNING,
+                                f"declares no @recipe.icon, so the UI draws the {recipe.category} "
+                                f"category default; pick one as a \\uXXXX escape and confirm it "
+                                f"renders rather than trusting the codepoint"))
+    elif not any(icon_values):
+        # The metadata regex needs a value, so a bare `# @recipe.icon` line is
+        # not merely empty — it is invisible to the parser. Say so, rather than
+        # reporting the icon as simply absent and leaving the author looking at
+        # a line that is right there in the file.
+        findings.append(Finding("empty-icon", ERROR,
+                                "@recipe.icon has no value, so it is ignored entirely; "
+                                "give it a \\uXXXX escape or remove the line"))
     if recipe.risk == "high" and recipe.undo == "none":
         findings.append(Finding("high-risk-irreversible", WARNING,
                                 "high risk and no undo; say plainly in the description what cannot be reversed"))

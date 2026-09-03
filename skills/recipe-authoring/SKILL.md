@@ -69,7 +69,7 @@ durable artifact; the conversation is not. Work in this order:
 7. **Validate inputs.** Reject invalid choices, ranges, paths, hostnames, ports, etc. before making changes.
 8. **Never eval user input.** Do not construct a shell command string from parameter values.
 9. **Quote expansions.** Quote variable expansions unless word splitting is explicitly required and safe.
-10. **Use least privilege.** Do not run the whole script under sudo merely because one command needs elevation. Elevate the smallest possible command.
+10. **Use least privilege, and elevate with `recipe_sudo`.** Do not run the whole script under sudo merely because one command needs elevation; elevate the smallest possible command, as `recipe_sudo <command>`. **Never call `sudo` directly.** A recipe launched from the menu runs with its output captured and no terminal attached, so bare `sudo` cannot prompt and dies with `sudo: a terminal is required to read the password` — which reads to the user as a broken recipe, not a missing password. `recipe_sudo` prompts through the desktop's polkit agent when there is no terminal, uses `sudo` when there is one, and skips the prompt entirely where passwordless sudo is configured.
 11. **Do not silently destroy user customization.** Prefer targeted edits. Explain when replacing an entire managed file is intentional.
 12. **Make `check` read-only.** `check` must not install packages, create directories, touch files, restart services, or otherwise mutate the machine. Frontends run it every time a recipe is selected.
 13. **Report state from `check`.** End `check` with `recipe_state configured "<detail>"` or `recipe_state not-configured "<detail>"` so a UI shows a state instead of guessing from prose. Use `recipe_summary` from `apply` and `undo` to say what changed (`"300 → 600 seconds"`).
@@ -92,6 +92,35 @@ description of the change, not a transcript.
 ## Metadata guidance
 
 Prefer concise categories that remain useful as the collection grows: `System`, `Power`, `Applications`, `Development`, `Networking`, `Storage`, `Security`, `Omarchy`, `Desktop`.
+
+Pick an icon. `@recipe.icon` is one Nerd Font glyph drawn beside the title,
+written as a `\uXXXX` escape — never as the literal character, which does not
+survive every editor and shell round-trip:
+
+```bash
+# @recipe.icon \uf085
+```
+
+**Do not guess a codepoint from an icon name.** Several plausible-looking ones
+render as nothing at all in JetBrainsMono Nerd Font (`f5fc` and `f6ff` among
+them), and a blank icon looks like a broken recipe. Either reuse a codepoint
+already in `docs/RECIPE_SPEC.md`, or confirm a new one by rendering it:
+
+```bash
+printf '\uf085 \uf009 \uf5fc\n' | magick -font /usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf \
+  -pointsize 64 label:@- glyphs.png
+```
+
+The field is optional and omitting it is safe — the engine falls back to the
+category's glyph, so nothing renders blank. Omit it rather than guess.
+
+Set privilege to exactly one of `user`, `mixed`, or `root`. It describes what
+the recipe *needs*, not how it gets it — `sudo`, `doas`, and `pkexec` are not
+values:
+
+- `user`: touches only the user's own files and services
+- `mixed`: mostly user-level, with a few elevated commands
+- `root`: cannot do its job without elevation at all
 
 Set risk honestly:
 

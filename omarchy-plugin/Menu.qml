@@ -72,7 +72,7 @@ Item {
 
   // ---- navigation ---------------------------------------------------------
 
-  property string view: "browse"          // "browse" | "detail" | "create"
+  property string view: "browse"          // "browse" | "detail" | "create" | "settings"
   property string filterText: ""
   property int selectedIndex: 0
   property bool cursorActive: false
@@ -95,6 +95,16 @@ Item {
     view = "create"
     recipeEngine.select("")
     Qt.callLater(function() { create.forceActiveFocus() })
+  }
+
+  function openSettings() {
+    view = "settings"
+    recipeEngine.select("")
+    // Re-read before showing, so the screen opens on what the engine currently
+    // reports rather than on whatever a previous visit left behind.
+    recipeEngine.loadConfig()
+    settings.reload()
+    Qt.callLater(function() { settings.forceActiveFocus() })
   }
 
   function setFilter(text) {
@@ -185,11 +195,13 @@ Item {
   // Height the browse list wants, measured from the row model rather than read
   // back off the ListView: the list is sized by the card, so asking the list
   // how tall it is in order to size the card would be a binding loop.
-  // The create row sits above the list, so the card has to account for it or
-  // the last recipe is clipped.
+  // The create and settings rows sit above the list, so the card has to account
+  // for them or the last recipe is clipped.
   readonly property bool createRowVisible: view === "browse" && filterText === ""
+  readonly property bool settingsRowVisible: view === "browse" && filterText === ""
   readonly property int browseContentHeight: {
     var total = createRowVisible ? rowHeight + Style.spacing.xs : 0
+    total += settingsRowVisible ? rowHeight + Style.spacing.xs : 0
     for (var i = 0; i < rows.length; i++) {
       if (i > 0) total += Style.spacing.xs
       total += rows[i].kind === "header"
@@ -266,7 +278,9 @@ Item {
       panel.height - Style.gapsOut * 2)
     readonly property int bodyContentHeight: root.view === "detail"
       ? detail.contentHeight
-      : (root.view === "create" ? create.contentHeight : root.browseContentHeight)
+      : root.view === "create" ? create.contentHeight
+      : root.view === "settings" ? settings.contentHeight
+      : root.browseContentHeight
     readonly property int cardChromeHeight: Style.spacing.panelPadding * 2
       + Border.top(root.borderSpec) + Border.bottom(root.borderSpec)
       + root.headerHeight + Style.spacing.md
@@ -333,6 +347,11 @@ Item {
             event.accepted = true
             return
           }
+          if (event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
+            root.openSettings()
+            event.accepted = true
+            return
+          }
           if (event.key === Qt.Key_F5) {
             recipeEngine.reload()
             if (root.view === "detail") detail.refreshState()
@@ -374,17 +393,35 @@ Item {
             width: parent.width
             height: root.headerHeight
 
+            // The selected recipe's glyph, so the detail view is headed the same
+            // way the recipe was listed. Only the detail view has a recipe to
+            // draw one for; the other views keep their plain heading.
             Text {
+              id: headerIcon
               textFormat: Text.PlainText
               anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.view === "detail" && text !== ""
+              text: recipeEngine.recipe ? String(recipeEngine.recipe.icon || "") : ""
+              color: Qt.darker(root.foreground, 1.25)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.heading
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              anchors.left: headerIcon.visible ? headerIcon.right : parent.left
+              anchors.leftMargin: headerIcon.visible ? Style.spacing.controlGap : 0
               anchors.right: hint.left
               anchors.rightMargin: Style.spacing.md
               anchors.verticalCenter: parent.verticalCenter
               text: root.view === "create"
                 ? "Create a recipe"
-                : root.view === "detail"
-                  ? (recipeEngine.recipe ? String(recipeEngine.recipe.title || recipeEngine.recipe.id) : "Recipe")
-                  : (root.filterText || "Search recipes…")
+                : root.view === "settings"
+                  ? "Agent settings"
+                  : root.view === "detail"
+                    ? (recipeEngine.recipe ? String(recipeEngine.recipe.title || recipeEngine.recipe.id) : "Recipe")
+                    : (root.filterText || "Search recipes…")
               color: root.foreground
               opacity: root.view !== "browse" || root.filterText ? 1 : 0.58
               font.family: root.fontFamily
@@ -472,12 +509,26 @@ Item {
                 radius: Style.cornerRadius
                 color: createMouse.containsMouse ? root.selectedBackground : "transparent"
 
+                // Label and shortcut are anchored separately, rather than spaced
+                // apart inside one string, so this row's shortcut lines up with
+                // the settings row's however wide the card gets.
                 Text {
                   textFormat: Text.PlainText
                   anchors.left: parent.left
                   anchors.leftMargin: Style.spacing.rowPaddingX
                   anchors.verticalCenter: parent.verticalCenter
-                  text: "＋  Create recipe…            Ctrl+N"
+                  text: "＋  Create recipe…"
+                  color: createMouse.containsMouse ? root.selectedText : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.spacing.rowPaddingX
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "Ctrl+N"
                   color: createMouse.containsMouse ? root.selectedText : root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -492,12 +543,83 @@ Item {
               }
             }
 
+            // Sits in the list rather than behind a keybinding alone: a setting
+            // nobody can find is one that does not exist.
+            Item {
+              id: settingsRow
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: createRow.visible ? createRow.bottom : parent.top
+              anchors.topMargin: createRow.visible ? Style.spacing.xs : 0
+              height: root.rowHeight
+              visible: root.settingsRowVisible
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: settingsMouse.containsMouse ? root.selectedBackground : "transparent"
+
+                Text {
+                  id: settingsLabel
+                  textFormat: Text.PlainText
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.spacing.rowPaddingX
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "⚙  Agent settings…"
+                  color: settingsMouse.containsMouse ? root.selectedText : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  id: settingsShortcut
+                  textFormat: Text.PlainText
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.spacing.rowPaddingX
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "Ctrl+,"
+                  color: settingsMouse.containsMouse ? root.selectedText : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                // The provider that would actually answer, named on the row, so
+                // the current setting is visible without opening anything.
+                //
+                // Anchored between the label and the shortcut rather than to the
+                // row edge: a long provider/model pair would otherwise be drawn
+                // straight over the shortcut. It elides instead of colliding.
+                Text {
+                  textFormat: Text.PlainText
+                  anchors.left: settingsLabel.right
+                  anchors.leftMargin: Style.spacing.md
+                  anchors.right: settingsShortcut.left
+                  anchors.rightMargin: Style.spacing.md
+                  anchors.verticalCenter: parent.verticalCenter
+                  horizontalAlignment: Text.AlignRight
+                  elide: Text.ElideRight
+                  text: Model.agentSummary(recipeEngine.agentProvider, recipeEngine.agentModel)
+                  color: Qt.darker(settingsMouse.containsMouse ? root.selectedText : root.foreground, 1.4)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                MouseArea {
+                  id: settingsMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  onClicked: root.openSettings()
+                }
+              }
+            }
+
             ListView {
               id: resultList
               anchors.left: parent.left
               anchors.right: parent.right
               anchors.bottom: parent.bottom
-              anchors.top: createRow.visible ? createRow.bottom : parent.top
+              anchors.top: settingsRow.visible ? settingsRow.bottom
+                : (createRow.visible ? createRow.bottom : parent.top)
               visible: root.view === "browse"
               model: root.rows
               clip: true
@@ -543,9 +665,27 @@ Item {
                       width: parent.width
                       spacing: Style.spacing.controlGap
 
+                      // The recipe's glyph. Always resolved by the engine — a
+                      // recipe that declares none gets its category's — so this
+                      // is only empty against an engine too old to send it,
+                      // where the row simply falls back to title-only.
+                      Text {
+                        id: rowIcon
+                        textFormat: Text.PlainText
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: text !== ""
+                        text: row.modelData && row.modelData.icon ? row.modelData.icon : ""
+                        color: root.cursorActive && root.selectedIndex === row.index
+                          ? root.selectedText : Qt.darker(root.foreground, 1.25)
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.body
+                      }
+
                       Text {
                         textFormat: Text.PlainText
-                        width: Math.min(implicitWidth, parent.width - badge.width - Style.spacing.controlGap)
+                        width: Math.min(implicitWidth, parent.width - badge.width
+                          - (rowIcon.visible ? rowIcon.width + Style.spacing.controlGap : 0)
+                          - Style.spacing.controlGap)
                         text: row.modelData ? row.modelData.label : ""
                         color: root.cursorActive && root.selectedIndex === row.index
                           ? root.selectedText : root.foreground
@@ -617,6 +757,18 @@ Item {
               accent: root.selectedText
               fontFamily: root.fontFamily
               onOpenRecipeRequested: function(recipeId) { root.openRecipe(recipeId) }
+            }
+
+            SettingsView {
+              id: settings
+              anchors.fill: parent
+              visible: root.view === "settings"
+              enabled: visible
+              engine: recipeEngine
+              foreground: root.foreground
+              accent: root.selectedText
+              selectedBackground: root.selectedBackground
+              fontFamily: root.fontFamily
             }
 
             RecipeDetail {

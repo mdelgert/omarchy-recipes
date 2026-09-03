@@ -22,6 +22,31 @@ Milestones are large (multi-week) bodies of work with their own spec/report
 pair. Tasks in `docs/tasks/` are the smaller day-to-day unit — a milestone is
 usually built from several tasks.
 
+## Branching
+
+- **`main`** — stable, protected. Only receives merges via PR from `dev` (or
+  a milestone/recipe branch), never direct commits.
+- **`dev`** — rolling integration branch. This is where you add/edit
+  `docs/tasks/*.md`, `ROADMAP.md`, and other low-risk backlog/docs changes
+  directly — no branch needed for planning.
+- **`task/<slug>`** (or `recipe/<slug>` for a single recipe, matching the
+  existing `contribute` command convention) — create this off an up-to-date
+  `dev` *before* handing a task to an agent:
+
+  ```bash
+  git checkout dev && git pull
+  git checkout -b task/<slug>          # matches docs/tasks/<slug>.md
+  ```
+
+  The agent works and commits here, never on `dev` or `main` directly. You
+  review the diff on this branch, run `make check`/`make validate`, then PR
+  it into `dev`. Delete the branch after merge.
+- Periodically, once `dev` accumulates a coherent batch of merged tasks, open
+  a PR from `dev` into `main` (this replaces the old milestone-branch-to-main
+  pattern for the smaller task-sized work).
+
+So: **plan on `dev`, implement on `task/<slug>`.**
+
 ## The loop
 
 1. **Capture the idea.** Jot bugs/ideas into `docs/dev/KNOWN_BUGS.md` or

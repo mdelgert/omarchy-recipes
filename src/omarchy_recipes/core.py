@@ -25,6 +25,59 @@ VALID_PRIVILEGE = {"user", "mixed", "root"}
 VALID_UNDO = {"restore", "command", "none"}
 VALID_RISK = {"low", "medium", "high"}
 
+# `@recipe.icon` is written as a `\uXXXX` escape rather than the literal glyph.
+# A private-use-area character does not survive every editor, shell, and diff
+# round-trip, and a silently emptied icon collapses to blank rather than
+# erroring — the same reasoning `BarWidget.qml` records for the bar glyph.
+ICON_ESCAPE_RE = re.compile(r"^\\[uU]([0-9A-Fa-f]{4,6})$")
+
+# Fallback glyph per category, so a recipe that declares no icon still draws
+# something. Kept in the engine rather than in each frontend, so every client
+# gets the same icon without reimplementing the table.
+#
+# EVERY codepoint here was chosen by rendering it in JetBrainsMono Nerd Font,
+# not by trusting an icon name. That is not a formality: `f5fc` ("apps") and
+# `f6ff` ("network-wired") both look plausible and both render blank.
+CATEGORY_ICONS = {
+    "System": "\uf085",        # gears
+    "Power": "\uf0e7",         # bolt
+    "Applications": "\uf009",  # grid
+    "Development": "\uf121",   # </>
+    "Networking": "\uf0e8",    # sitemap
+    "Storage": "\uf0a0",       # hard drive
+    "Security": "\uf023",      # padlock
+    "Omarchy": "\uf303",       # arch
+    "Desktop": "\uf108",       # monitor
+    "Diagnostics": "\uf188",   # bug
+    "Examples": "\uf0eb",      # lightbulb
+}
+
+# For a category not in the table at all. A recipe may declare any category.
+DEFAULT_ICON = "\uf013"        # cog
+
+
+def resolve_icon(declared: str | None, category: str) -> str:
+    """The glyph to draw for a recipe: what it declared, or its category's.
+
+    Returns a single character, always. Raises when a declared value cannot be
+    one, because an icon that silently renders blank is worse than a refusal —
+    the recipe looks broken and nothing says why.
+    """
+    raw = (declared or "").strip()
+    if not raw:
+        return CATEGORY_ICONS.get(category, DEFAULT_ICON)
+    match = ICON_ESCAPE_RE.match(raw)
+    if match:
+        code = int(match.group(1), 16)
+        if not (0 < code <= 0x10FFFF):
+            raise ValueError(f"{raw} is not a usable codepoint")
+        return chr(code)
+    # A pasted glyph still works, but the escape is the documented form.
+    if len(raw) == 1:
+        return raw
+    raise ValueError(
+        f"expected a single glyph or a \\uXXXX escape such as \\uf085, got {raw!r}")
+
 # Machine-readable output contract version. Frontends should refuse output they
 # do not understand rather than guessing at a newer shape.
 SCHEMA_VERSION = 1
@@ -89,6 +142,10 @@ class Recipe:
     tags: list[str]
     parameters: list[Parameter]
     extra: dict[str, str]
+    # A single glyph to draw beside the title. Always populated: a recipe that
+    # declares none gets its category's, resolved here so no frontend has to
+    # carry its own table or decide what a missing icon looks like.
+    icon: str = DEFAULT_ICON
     # Where the recipe came from, decided by which directory it was found in
     # rather than by anything the file claims about itself.
     source: str = sources_mod.BUNDLED
@@ -200,16 +257,27 @@ def parse_recipe(path: Path) -> Recipe:
     privilege = meta.get("privilege", "user")
     undo = meta.get("undo", "none")
     risk = meta.get("risk", "medium")
+    # Name the accepted values. A bare "invalid privilege 'sudo'" says only that
+    # the guess was wrong, which leaves a human guessing again and gives an
+    # authoring agent nothing to correct itself with.
     if privilege not in VALID_PRIVILEGE:
-        raise RecipeError(f"{path}: invalid privilege {privilege!r}")
+        raise RecipeError(f"{path}: invalid privilege {privilege!r}; "
+                          f"expected one of: {', '.join(sorted(VALID_PRIVILEGE))}")
     if undo not in VALID_UNDO:
-        raise RecipeError(f"{path}: invalid undo {undo!r}")
+        raise RecipeError(f"{path}: invalid undo {undo!r}; "
+                          f"expected one of: {', '.join(sorted(VALID_UNDO))}")
     if risk not in VALID_RISK:
-        raise RecipeError(f"{path}: invalid risk {risk!r}")
+        raise RecipeError(f"{path}: invalid risk {risk!r}; "
+                          f"expected one of: {', '.join(sorted(VALID_RISK))}")
     known = {
         "id", "title", "description", "category", "platform", "distro", "privilege",
-        "undo", "risk", "tags", "generated-with-ai", "reviewed",
+        "undo", "risk", "tags", "generated-with-ai", "reviewed", "icon",
     }
+
+    try:
+        icon = resolve_icon(meta.get("icon"), meta["category"])
+    except ValueError as e:
+        raise RecipeError(f"{path}: invalid @recipe.icon: {e}") from e
 
     def flag(key: str) -> bool:
         raw = meta.get(key)
@@ -234,6 +302,7 @@ def parse_recipe(path: Path) -> Recipe:
         tags=_split_csv(meta.get("tags", "")),
         parameters=params,
         extra={k: v for k, v in meta.items() if k not in known},
+        icon=icon,
         authoring={"generated_with_ai": flag("generated-with-ai"), "reviewed": flag("reviewed")},
     )
 

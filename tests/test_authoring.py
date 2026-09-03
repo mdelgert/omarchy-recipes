@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from omarchy_recipes import agent, authoring, conflicts, contribution, inspection, lint, sources
+from omarchy_recipes import agent, authoring, conflicts, contribution, core, inspection, lint, sources
 from omarchy_recipes.core import RecipeError, scan
 from omarchy_recipes.inspection import DomainResult
 
@@ -457,8 +457,129 @@ class AgentAdapterTests(unittest.TestCase):
             with self.assertRaises(RecipeError, msg=repr(reply)):
                 agent._extract_json(reply)
 
+    def _lint_recipe(self, extra_meta=""):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "r.sh"
+            p.write_text(
+                "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+                "# @recipe.id r\n# @recipe.title T\n# @recipe.description D\n"
+                "# @recipe.category System\n# @recipe.privilege user\n"
+                "# @recipe.undo none\n# @recipe.risk low\n" + extra_meta +
+                "case \"${1:-}\" in\n  check) recipe_state configured x ;;\n"
+                "  apply) : ;;\n  undo) : ;;\nesac\n"
+            )
+            return lint.lint(p)
+
+    def test_missing_icon_only_warns(self):
+        """Every recipe written before icons existed has none, and the engine
+        already falls back, so this must never block them."""
+        report = self._lint_recipe()
+        findings = {f["rule"]: f["severity"] for f in report["findings"]}
+        self.assertEqual(findings.get("no-icon"), "warning")
+        self.assertNotIn("no-icon", [f["rule"] for f in report["findings"] if f["severity"] == "error"])
+
+    def test_declared_icon_silences_the_warning(self):
+        report = self._lint_recipe("# @recipe.icon \\uf085\n")
+        self.assertNotIn("no-icon", [f["rule"] for f in report["findings"]])
+
+    def test_valueless_icon_line_is_an_error(self):
+        """A bare `# @recipe.icon` is invisible to the metadata parser, so
+        reporting it as merely absent would leave the author staring at a line
+        that is right there in the file."""
+        report = self._lint_recipe("# @recipe.icon\n")
+        findings = {f["rule"]: f["severity"] for f in report["findings"]}
+        self.assertEqual(findings.get("empty-icon"), "error")
+        self.assertFalse(report["ok"])
+
+    def test_malformed_icon_is_reported_as_invalid_metadata(self):
+        report = self._lint_recipe("# @recipe.icon nonsense\n")
+        self.assertIn("invalid-metadata", [f["rule"] for f in report["findings"]])
+        self.assertFalse(report["ok"])
+
+    def test_shipped_recipes_still_lint_without_icons(self):
+        """Adding the field must not break the existing library."""
+        for path in sorted((ROOT / "recipes").rglob("*.sh")):
+            with self.subTest(recipe=path.name):
+                report = lint.lint(path)
+                self.assertTrue(report["ok"], f"{path.name}: {report['findings']}")
+
+    def test_bare_sudo_is_refused(self):
+        """A recipe from the menu has no terminal, so bare sudo cannot prompt.
+
+        It fails with "sudo: a terminal is required to read the password",
+        which reads as a broken recipe. Refusing at save time is the last point
+        the author still sees it.
+        """
+        report = authoring.draft_report(
+            "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+            "# @recipe.id r\n# @recipe.title T\n# @recipe.description D\n"
+            "# @recipe.category System\n# @recipe.privilege root\n"
+            "# @recipe.undo command\n# @recipe.risk low\n"
+            "case \"${1:-}\" in\n"
+            "  check) sudo pacman -Q nano ;;\n"
+            "  apply) : ;;\n  undo) : ;;\nesac\n"
+        )
+        rules = [f["rule"] for f in report["findings"]]
+        self.assertIn("bare-sudo", rules)
+        self.assertFalse(report["ok"])
+
+    def test_recipe_sudo_is_not_mistaken_for_bare_sudo(self):
+        """The helper is the fix, so it must not trip the rule it exists for."""
+        report = authoring.draft_report(
+            "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+            "# @recipe.id r\n# @recipe.title T\n# @recipe.description D\n"
+            "# @recipe.category System\n# @recipe.privilege root\n"
+            "# @recipe.undo command\n# @recipe.risk low\n"
+            "case \"${1:-}\" in\n"
+            "  check) recipe_sudo pacman -Q nano ;;\n"
+            "  apply) : ;;\n  undo) : ;;\nesac\n"
+        )
+        self.assertNotIn("bare-sudo", [f["rule"] for f in report["findings"]])
+
+    def test_authoring_rules_require_the_privilege_helper(self):
+        """The skill is where the model learns the helper exists at all."""
+        rules = (ROOT / "skills" / "recipe-authoring" / "SKILL.md").read_text()
+        self.assertIn("recipe_sudo", rules)
+        source = (ROOT / "src" / "omarchy_recipes" / "agent.py").read_text()
+        start = source.index("Hard requirements")
+        self.assertIn("recipe_sudo", source[start:start + 1500])
+
+    def test_privilege_helper_exists_in_the_library(self):
+        lib = (ROOT / "lib" / "recipe.sh").read_text()
+        self.assertIn("recipe_sudo()", lib)
+        # The no-terminal path is the whole point of the helper.
+        self.assertIn("pkexec", lib)
+
+    def test_authoring_rules_state_every_fixed_value_field(self):
+        """The skill is the model's only source for these enums.
+
+        A generated recipe was refused for `@recipe.privilege sudo`: the rules
+        named the accepted values for risk and undo but not for privilege, so
+        the model had to guess, and `sudo` is the obvious guess. Whatever the
+        engine will reject has to be written down here.
+        """
+        rules = (ROOT / "skills" / "recipe-authoring" / "SKILL.md").read_text()
+        for value in sorted(core.VALID_PRIVILEGE | core.VALID_UNDO | core.VALID_RISK):
+            self.assertIn(f"`{value}`", rules, f"SKILL.md never names {value!r}")
+
+    def test_draft_prompt_states_every_fixed_value_field(self):
+        """Same contract for the prompt the engine builds around the skill."""
+        source = (ROOT / "src" / "omarchy_recipes" / "agent.py").read_text()
+        start = source.index("Hard requirements")
+        requirements = source[start:start + 1500]
+        for value in sorted(core.VALID_PRIVILEGE | core.VALID_UNDO | core.VALID_RISK):
+            self.assertIn(value, requirements, f"draft prompt never names {value!r}")
+
     def test_denied_tools_are_last_so_the_prompt_cannot_be_swallowed(self):
-        argv = agent.PROVIDER_ARGV["claude"](None)
+        # Builders take the prompt as well as the model: copilot has no stdin
+        # mode and carries it in argv. claude ignores it and reads stdin.
+        argv = agent.PROVIDER_ARGV["claude"](None, "PROMPT")
         self.assertEqual(argv[-len(agent.DENIED_TOOLS) - 1], "--disallowedTools")
         for tool in ["Bash", "Edit", "Write"]:
+            self.assertIn(tool, argv)
+
+    def test_copilot_denied_tools_are_last_and_use_copilot_names(self):
+        argv = agent.PROVIDER_ARGV["copilot"](None, "PROMPT")
+        self.assertEqual(argv[-len(agent.COPILOT_DENIED_TOOLS) - 1], "--excluded-tools")
+        for tool in ["bash", "edit", "create"]:
             self.assertIn(tool, argv)

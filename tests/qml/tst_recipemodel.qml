@@ -205,4 +205,112 @@ TestCase {
     compare(Model.pathFromUrl("qrc:/nope"), "")
     compare(Model.parentDir("/home/u/plugins/x"), "/home/u/plugins")
   }
+
+  function test_agent_summary_names_the_resolved_provider() {
+    compare(Model.agentSummary("copilot", ""), "copilot")
+    compare(Model.agentSummary("claude", "claude-sonnet-4.5"), "claude (claude-sonnet-4.5)")
+  }
+
+  readonly property var modelsByProvider: ({
+    claude: ["opus", "sonnet"],
+    copilot: ["auto", "gpt-5.4"]
+  })
+
+  function test_rows_carry_the_recipe_icon() {
+    // The engine resolves the glyph (declaring none yields the category's), so
+    // the row just forwards it.
+    var rows = Model.rowsFor([
+      { id: "a", title: "A", category: "Alpha", icon: "" }
+    ], "")
+    compare(rows[1].icon, "")
+  }
+
+  function test_header_rows_carry_an_icon_key_too() {
+    // Every row must expose the same keys or the delegate binds undefined.
+    var rows = Model.rowsFor([{ id: "a", title: "A", category: "Alpha" }], "")
+    compare(rows[0].kind, "header")
+    verify(rows[0].hasOwnProperty("icon"))
+    compare(rows[0].icon, "")
+  }
+
+  function test_row_icon_is_empty_when_the_engine_sends_none() {
+    // An engine too old to carry the field must not render "undefined".
+    var rows = Model.rowsFor([{ id: "a", title: "A", category: "Alpha" }], "")
+    compare(rows[1].icon, "")
+  }
+
+  function test_model_options_offer_the_providers_shortlist() {
+    var opts = Model.modelOptions(modelsByProvider, "claude", "")
+    compare(opts[0], Model.modelDefaultLabel())
+    compare(opts[1], "opus")
+    compare(opts[2], "sonnet")
+    compare(opts.length, 3)
+  }
+
+  function test_model_options_keep_a_value_the_shortlist_lacks() {
+    // The shortlist cannot be complete, so a configured model the engine has
+    // never heard of must survive rather than vanish from the picker.
+    var opts = Model.modelOptions(modelsByProvider, "claude", "some-future-model")
+    compare(opts.indexOf("some-future-model") >= 0, true)
+    compare(opts.length, 4)
+  }
+
+  function test_model_options_do_not_duplicate_a_known_value() {
+    var opts = Model.modelOptions(modelsByProvider, "claude", "opus")
+    compare(opts.length, 3)
+  }
+
+  function test_model_options_tolerate_an_unknown_provider() {
+    compare(Model.modelOptions(modelsByProvider, "nope", ""), [Model.modelDefaultLabel()])
+    compare(Model.modelOptions(null, "claude", ""), [Model.modelDefaultLabel()])
+  }
+
+  function test_model_option_round_trips_through_the_config_value() {
+    compare(Model.modelFromOption(Model.modelDefaultLabel()), "")
+    compare(Model.modelToOption(""), Model.modelDefaultLabel())
+    compare(Model.modelFromOption("opus"), "opus")
+    compare(Model.modelToOption("opus"), "opus")
+    // Whitespace-only is still "unset", not a model named " ".
+    compare(Model.modelToOption("   "), Model.modelDefaultLabel())
+  }
+
+  function test_provider_options_mark_the_chosen_one() {
+    var opts = Model.providerOptions([
+      { name: "claude", available: true, reason: "" },
+      { name: "codex", available: true, reason: "" },
+      { name: "copilot", available: true, reason: "" }
+    ], "codex")
+    compare(opts.length, 3)
+    compare(opts[0].selected, false)
+    compare(opts[1].name, "codex")
+    compare(opts[1].selected, true)
+    compare(opts[1].status, "available")
+  }
+
+  function test_provider_options_list_uninstalled_providers_too() {
+    // Hiding one would make the project look like it supports fewer providers
+    // than it does; the engine reports the missing CLI when it is used.
+    var opts = Model.providerOptions([
+      { name: "claude", available: false, reason: "claude is not installed" }
+    ], "claude")
+    compare(opts.length, 1)
+    compare(opts[0].available, false)
+    compare(opts[0].status, "claude is not installed")
+    compare(opts[0].selected, true)
+  }
+
+  function test_provider_options_tolerate_missing_engine_data() {
+    compare(Model.providerOptions(null, "claude").length, 0)
+    compare(Model.providerOptions([], "").length, 0)
+    // A row with no name is dropped rather than rendered as a blank choice.
+    compare(Model.providerOptions([{ available: true }], "").length, 0)
+  }
+
+  function test_agent_summary_is_empty_until_the_engine_answers() {
+    // The sentence is dropped entirely rather than rendered half-empty while
+    // the engine is still starting up.
+    compare(Model.agentSummary("", ""), "")
+    compare(Model.agentSummary(null, null), "")
+    compare(Model.agentSummary(undefined, "some-model"), "")
+  }
 }

@@ -117,17 +117,95 @@ function rowsFor(recipes, query) {
     if (category !== currentCategory) {
       currentCategory = category
       // Every row carries the same keys so the delegate never binds undefined.
-      rows.push({ kind: "header", label: category, detail: "", recipeId: "" })
+      rows.push({ kind: "header", label: category, detail: "", recipeId: "", icon: "" })
     }
     rows.push({
       kind: "recipe",
       label: String(recipe.title || recipe.id),
       detail: String(recipe.description || ""),
       recipeId: String(recipe.id),
-      badge: sourceBadge(recipe)
+      badge: sourceBadge(recipe),
+      // Resolved by the engine, which falls back to the category glyph, so this
+      // is only ever empty for a response too old to carry the field.
+      icon: String(recipe.icon || "")
     })
   }
   return rows
+}
+
+// Names what will actually answer an authoring request: the provider the engine
+// resolved, plus the model when one is pinned. The engine has already applied
+// the flag/env/config precedence, so this only formats what it reported.
+//
+// Returns "" when no provider is known yet, so the caller can drop the sentence
+// entirely rather than render a half-empty one while the engine is still
+// starting up.
+function agentSummary(provider, model) {
+  var name = String(provider || "").trim()
+  if (!name) return ""
+  var pinned = String(model || "").trim()
+  return pinned ? name + " (" + pinned + ")" : name
+}
+
+// What an unset model is called in the picker. Empty is the shipped state and
+// needs a name a user can actually read.
+function modelDefaultLabel() { return "(provider default)" }
+
+// Options for the settings model picker: the provider's known models, with the
+// "unset" row first.
+//
+// The engine's list is a convenience shortlist, not a validated set — no
+// provider CLI can enumerate its own models, so the list is written down and
+// will go stale. A configured value the shortlist has never heard of is
+// therefore kept and offered rather than dropped, and the field stays free
+// text, so a model released after that list was written still works.
+function modelOptions(byProvider, provider, current) {
+  var out = [modelDefaultLabel()]
+  var known = (byProvider || ({}))[String(provider || "")] || []
+  for (var i = 0; i < known.length; i++) {
+    var name = String(known[i] || "").trim()
+    if (name && out.indexOf(name) < 0) out.push(name)
+  }
+  var value = String(current || "").trim()
+  if (value && out.indexOf(value) < 0) out.push(value)
+  return out
+}
+
+// Picker selection -> what the config stores. The default row means "not
+// configured", which the engine records as null.
+function modelFromOption(option) {
+  var value = String(option || "")
+  return value === modelDefaultLabel() ? "" : value
+}
+
+// Stored model -> which picker row is selected.
+function modelToOption(model) {
+  var value = String(model || "").trim()
+  return value === "" ? modelDefaultLabel() : value
+}
+
+// Rows for the settings provider picker: every provider the engine has an
+// adapter for, with whether its CLI is installed and which one is chosen.
+//
+// An uninstalled provider is listed rather than hidden. Configuring one you
+// have not installed yet is legitimate — the engine reports the missing CLI
+// plainly when you actually use it — and hiding it would make the list look
+// like the project supports fewer providers than it does.
+function providerOptions(providers, selected) {
+  var out = []
+  var list = providers || []
+  for (var i = 0; i < list.length; i++) {
+    var entry = list[i] || {}
+    var name = String(entry.name || "")
+    if (!name) continue
+    out.push({
+      name: name,
+      available: !!entry.available,
+      status: entry.available ? "available" : (String(entry.reason || "") || "not installed"),
+      selected: name === String(selected || "")
+    })
+  }
+  return out
 }
 
 // Short origin marker for the browse list. Bundled recipes get nothing: they

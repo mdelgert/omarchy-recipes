@@ -39,6 +39,29 @@ DEFAULT_TIMEOUT = 240
 # text, not to operate the machine; inspection reaches it as data in the prompt.
 DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task"]
 
+# The same restriction, expressed in Copilot's tool vocabulary. Copilot names
+# its tools differently, so handing it DENIED_TOOLS verbatim would deny nothing
+# at all — every name would simply fail to match, and the denial would look
+# applied while the model kept its shell. Verified against `copilot --help` and
+# against the tool list Copilot reports in its own JSON stream:
+#
+#   Bash          -> bash, read_bash, stop_bash, list_bash
+#   Edit          -> edit
+#   Write         -> create, write_agent
+#   WebFetch      -> web_fetch, fetch_copilot_cli_documentation
+#   WebSearch     -> web_search
+#   Task          -> task
+#   NotebookEdit  -> (no equivalent)
+#
+# Read-only inspection (view, grep, glob) is deliberately left in place: that is
+# what DENIED_TOOLS leaves Claude as well.
+COPILOT_DENIED_TOOLS = [
+    "bash", "read_bash", "stop_bash", "list_bash",
+    "edit", "create", "write_agent",
+    "web_fetch", "fetch_copilot_cli_documentation", "web_search",
+    "task",
+]
+
 
 @dataclass
 class Provider:
@@ -51,7 +74,7 @@ class Provider:
         return {"name": self.name, "available": self.available, "reason": self.reason}
 
 
-def _claude_argv(model: str | None) -> list[str]:
+def _claude_argv(model: str | None, prompt: str) -> list[str]:
     argv = ["claude", "-p", "--output-format", "json"]
     if model:
         argv += ["--model", model]
@@ -59,23 +82,73 @@ def _claude_argv(model: str | None) -> list[str]:
     return argv + ["--disallowedTools", *DENIED_TOOLS]
 
 
-def _codex_argv(model: str | None) -> list[str]:
+def _codex_argv(model: str | None, prompt: str) -> list[str]:
     argv = ["codex", "exec", "--skip-git-repo-check"]
     if model:
         argv += ["--model", model]
     return argv
 
 
-PROVIDER_ARGV: dict[str, Callable[[str | None], list[str]]] = {
+def _copilot_argv(model: str | None, prompt: str) -> list[str]:
+    # Copilot has no stdin mode: `-p` requires its text as an argument, and
+    # invoking it without one fails outright. So the prompt travels in argv here
+    # rather than on stdin. It sits immediately after `-p`, where exactly one
+    # flag consumes it and it can never be re-read as an option itself.
+    argv = ["copilot", "-p", prompt, "--output-format", "json"]
+    if model:
+        argv += ["--model", model]
+    # Copilot refuses to run non-interactively without --allow-all-tools; it is
+    # the tool exclusions below, not a permission prompt, that keep the model
+    # away from the machine. The builtin GitHub MCP server is switched off for
+    # the same reason WebFetch is denied: it reaches the network.
+    argv += ["--allow-all-tools", "--disable-builtin-mcps"]
+    # Variadic flag: keep it last so it cannot swallow another argument.
+    return argv + ["--excluded-tools", *COPILOT_DENIED_TOOLS]
+
+
+PROVIDER_ARGV: dict[str, Callable[[str | None, str], list[str]]] = {
     "claude": _claude_argv,
     "codex": _codex_argv,
+    "copilot": _copilot_argv,
 }
+
+# Providers whose CLI takes the prompt as a command-line argument. Everything
+# else receives it on stdin, which is preferred and is the default: the prompt
+# is long, contains newlines, and on stdin it can never be parsed as a flag.
+PROMPT_IN_ARGV = frozenset({"copilot"})
+
+# Models each CLI is known to accept, offered as suggestions by the settings UI.
+#
+# This is a convenience shortlist, NOT an authoritative or validated list. No
+# provider CLI can enumerate its own models — none of `claude`, `copilot`, or
+# `codex` has a `models` subcommand or a machine-readable route, and none caches
+# a catalogue on disk — so there is nothing to query and this has to be written
+# down. Written-down lists go stale, which is exactly why nothing validates
+# against it: the model setting stays free text, and a model released after this
+# list was last edited still works. Wrong entries here cost the user a dropdown
+# row, never a rejected setting.
+#
+# Entries are what each CLI's own help or output actually shows:
+#   claude   `--model` takes an alias or a full model name
+#   copilot  `--model` example is a full name; 'auto' is documented
+#   codex    `-m/--model`, whose own config example is a bare model name
+PROVIDER_MODELS: dict[str, list[str]] = {
+    "claude": ["opus", "sonnet", "haiku",
+               "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+    "copilot": ["auto", "claude-sonnet-5", "claude-opus-5", "gpt-5.4"],
+    "codex": ["o3", "gpt-5.4"],
+}
+
+
+def provider_models() -> dict[str, list[str]]:
+    """Suggested models per provider, for a frontend to offer as a shortlist."""
+    return {name: list(PROVIDER_MODELS.get(name, [])) for name in PROVIDER_ARGV}
 
 
 def providers() -> list[Provider]:
     out = []
     for name, builder in PROVIDER_ARGV.items():
-        argv = builder(None)
+        argv = builder(None, "")
         found = shutil.which(argv[0])
         out.append(Provider(
             name=name,
@@ -87,13 +160,54 @@ def providers() -> list[Provider]:
 
 
 def default_provider() -> str:
+    """Which provider to use when the caller did not name one.
+
+    Order, most specific first:
+
+        --provider flag        handled by the caller, in complete()
+        OMARCHY_RECIPES_AGENT  kept for scripting and CI
+        config agent.provider  what `config set agent.provider` writes
+        first installed        whatever is actually on this machine
+
+    A null or absent `agent.provider` means "not configured" and falls through
+    to the last rule, which is why the shipped default for it is null rather
+    than a provider name.
+    """
+    from . import config
+
     override = os.environ.get("OMARCHY_RECIPES_AGENT")
     if override:
         return override
+    # Read the file directly rather than via config.get: a corrupt config should
+    # surface as an error the user can fix, not be swallowed as "unconfigured".
+    configured = (config.load().get("agent") or {}).get("provider")
+    if configured:
+        return str(configured)
     for provider in providers():
         if provider.available:
             return provider.name
     return "claude"
+
+
+def resolve_model(provider: str | None = None) -> str | None:
+    """Which model to use for `provider`, or None to let the provider decide.
+
+    The same shape as default_provider():
+
+        --model flag                  handled by the caller, in complete()
+        OMARCHY_RECIPES_MODEL         kept for scripting and CI
+        config agent.models.<name>    what `config set agent.models.X` writes
+        None                          the provider picks its own default
+    """
+    from . import config
+
+    name = provider or default_provider()
+    override = os.environ.get("OMARCHY_RECIPES_MODEL")
+    if override:
+        return override
+    models = (config.load().get("agent") or {}).get("models") or {}
+    configured = models.get(name)
+    return str(configured) if configured else None
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -144,14 +258,20 @@ def complete(prompt: str, *, provider: str | None = None, model: str | None = No
     builder = PROVIDER_ARGV.get(name)
     if builder is None:
         raise RecipeError(f"unknown agent provider {name!r}; available: {', '.join(sorted(PROVIDER_ARGV))}")
-    argv = builder(model)
+    # Use explicit model, or fall back to configured default
+    resolved_model = model or resolve_model(name)
+    argv = builder(resolved_model, prompt)
     if not shutil.which(argv[0]):
         raise RecipeError(f"{argv[0]} is not installed; set OMARCHY_RECIPES_AGENT to another provider")
 
+    # The prompt goes on stdin: it is long, it contains newlines, and a variadic
+    # flag must never be able to consume it. A provider in PROMPT_IN_ARGV has no
+    # stdin mode and already carries the prompt in argv; it gets an empty stdin
+    # rather than inheriting this process's, so it can never block on a read.
+    stdin_text = "" if name in PROMPT_IN_ARGV else prompt
+
     try:
-        # The prompt goes on stdin: it is long, it contains newlines, and a
-        # variadic flag must never be able to consume it.
-        proc = subprocess.run(argv, input=prompt, text=True, capture_output=True,
+        proc = subprocess.run(argv, input=stdin_text, text=True, capture_output=True,
                               timeout=timeout, check=False)
     except subprocess.TimeoutExpired as e:
         raise RecipeError(f"{name} did not respond within {timeout}s") from e
@@ -170,7 +290,39 @@ def complete(prompt: str, *, provider: str | None = None, model: str | None = No
         if payload.get("is_error"):
             raise RecipeError(f"{name} reported an error: {payload.get('result') or 'unknown'}")
         return str(payload.get("result") or "")
+    elif name == "copilot":
+        # Copilot outputs JSONL; extract the assistant message from the stream
+        return _extract_copilot_response(proc.stdout)
     return proc.stdout
+
+
+def _extract_copilot_response(jsonl_output: str) -> str:
+    """Extract the assistant's final message from copilot's JSONL output.
+
+    Copilot streams one JSON object per line — status, telemetry, and message
+    events interleaved — rather than returning a single object the way
+    `claude --output-format json` does. The reply is the *last* `assistant.message`:
+    earlier ones are intermediate turns, and it is the final answer that carries
+    the recipe. Unparsable lines are skipped rather than fatal, since the stream
+    also carries lines this code has no contract with.
+    """
+    reply = ""
+    for line in jsonl_output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant.message":
+            continue
+        content = str((obj.get("data") or {}).get("content") or "")
+        if content:
+            reply = content
+    if not reply:
+        raise RecipeError("copilot returned no assistant message")
+    return reply
 
 
 # ------------------------------------------------------------------ prompts
@@ -332,6 +484,11 @@ Hard requirements, all enforced by `omarchy-recipes lint`:
 - start with `#!/usr/bin/env bash` and `set -Eeuo pipefail`
 - declare @recipe.id, @recipe.title, @recipe.description, @recipe.category,
   @recipe.privilege, @recipe.undo, @recipe.risk
+- those last three take a fixed value and nothing else:
+    @recipe.privilege  user | mixed | root   (what the recipe needs, not how it
+                                              elevates — never `sudo`/`doas`/`pkexec`)
+    @recipe.undo       restore | command | none
+    @recipe.risk       low | medium | high
 - do NOT declare @recipe.generated-with-ai or @recipe.reviewed; the engine stamps those
 - implement all three of `check)`, `apply)`, and `undo)`
 - `check` must not modify anything, and must end by calling
@@ -339,6 +496,8 @@ Hard requirements, all enforced by `omarchy-recipes lint`:
 - call `recipe_backup_file` (or `recipe_mark_absent` when the target does not
   exist) before writing any file
 - never use eval, never pipe a download into a shell, never embed a credential
+- elevate with `recipe_sudo <command>`, never bare `sudo`: a recipe run from the
+  menu has no terminal, so `sudo` cannot prompt and fails outright
 - quote every expansion, including "$RECIPE_ARG_*"
 
 Reply with ONE JSON object and nothing else:
