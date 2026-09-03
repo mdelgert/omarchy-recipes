@@ -27,6 +27,7 @@
 - [ ] preview/diff action
 - [ ] streaming output for long-running recipes
 - [ ] secret parameter handling (masked input, redacted logs)
+- [ ] recipe icons (Nerd Font glyphs) — `docs/tasks/recipe-icons.md`
 
 ## v0.3 — real recipe library
 
@@ -36,6 +37,7 @@
 - [ ] Samba recipe
 - [ ] package/service state helper primitives
 - [ ] report-only diagnostic recipes (network info, curl+JSON, system diagnostics) — `docs/tasks/report-only-diagnostic-recipes.md`
+- [ ] curated candidate recipe list (Omarchy gaps + professional utilities) — `docs/tasks/curated-recipe-ideas-list.md`
 - [ ] distro/package-manager capability helpers
 - [ ] automated VM tests for risky recipes
 
