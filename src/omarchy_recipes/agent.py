@@ -550,3 +550,88 @@ Reply with ONE JSON object and nothing else:
     if not text.strip():
         raise RecipeError("the agent returned an empty recipe")
     return text
+
+
+# How many times a refused draft is sent back for correction before giving up
+# and showing the user what lint said. Two is enough: the findings are exact
+# (rule, line, fix), and a model that cannot act on them twice is not going to
+# on the third try -- at that point the honest thing is to show the refusal.
+REPAIR_ROUNDS = 2
+
+
+def repair(request: str, root: Path, recipe_text: str, findings: list[dict[str, Any]],
+           *, provider: str | None = None, model: str | None = None) -> str:
+    """Send a refused draft back with lint's exact findings and get it corrected.
+
+    Correction, not regeneration: the model edits the recipe it already wrote,
+    so the result is fast (short output) and stays the same recipe -- same id,
+    same parameters, same behaviour -- with only the refused lines changed.
+    """
+    prompt = f"""You are the recipe-authoring agent for `omarchy-recipes`.
+
+Read these rules and follow them exactly. They are authoritative:
+
+<authoring-skill>
+{_skill_text(root)}
+</authoring-skill>
+
+You drafted a recipe for this request:
+
+<request>
+{request}
+</request>
+
+`omarchy-recipes lint` refused it. Every finding below is exact: the rule, the
+line it is on, and what to change. Fix every error. Fix a warning too when it is
+a one-line change. Change nothing else -- keep the same behaviour, the same
+recipe id, the same parameters.
+
+<findings>
+{json.dumps(findings, indent=2)}
+</findings>
+
+<recipe>
+{recipe_text}
+</recipe>
+
+Reply with ONE JSON object and nothing else:
+
+{{"recipe_id": "the id", "recipe": "the complete corrected bash script as a JSON string"}}
+"""
+    reply = _extract_json(complete(prompt, provider=provider, model=model, timeout=DRAFT_TIMEOUT))
+    text = str(reply.get("recipe") or "")
+    if not text.strip():
+        raise RecipeError("the agent returned an empty recipe when asked to repair it")
+    return text
+
+
+def draft_and_repair(request: str, root: Path, plan_data: dict[str, Any],
+                     *, findings: list[dict[str, Any]] | None = None,
+                     decisions: dict[str, str] | None = None,
+                     provider: str | None = None, model: str | None = None) -> dict[str, Any]:
+    """Draft, lint, and correct until lint accepts or the rounds run out.
+
+    This is what makes authoring a process rather than a dice roll. Lint is
+    deterministic and its findings name the fix, so a refused draft is a
+    correction away from a saved one -- and paying a minute of generation only
+    to be told "no" was the whole complaint. Repairs are returned, not hidden:
+    the user sees that the first draft was refused and what was corrected,
+    because the project's claim is that a generated recipe is auditable.
+
+    Returns {"recipe", "lint", "repairs"}; `repairs` is a list, one entry per
+    round, each carrying the findings that round was asked to fix.
+    """
+    from . import authoring
+
+    text = draft(request, root, plan_data, findings=findings, decisions=decisions,
+                 provider=provider, model=model)
+    report = authoring.draft_report(text)
+    repairs: list[dict[str, Any]] = []
+    for round_number in range(1, REPAIR_ROUNDS + 1):
+        if report["ok"]:
+            break
+        repairs.append({"round": round_number,
+                        "findings": [f for f in report["findings"] if f["severity"] == "error"]})
+        text = repair(request, root, text, report["findings"], provider=provider, model=model)
+        report = authoring.draft_report(text)
+    return {"recipe": text, "lint": report, "repairs": repairs}

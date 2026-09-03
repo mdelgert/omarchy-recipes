@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from omarchy_recipes import agent, authoring, conflicts, contribution, core, inspection, lint, sources
 from omarchy_recipes.core import RecipeError, scan
@@ -582,6 +583,83 @@ class AgentAdapterTests(unittest.TestCase):
         rules = [f["rule"] for f in authoring.draft_report(body)["findings"]]
         self.assertNotIn("recipe-arg-case", rules)
         self.assertNotIn("recipe-arg-without-parse", rules)
+
+    def test_command_rules_ignore_words_inside_strings(self):
+        """`echo "run sudo first"` is prose; `recipe_die "User '$RECIPE_ARG_X'"`
+        is quoted. Both were flagged. A repair loop fed those would "fix" code
+        that was already right."""
+        body = self._param_recipe(
+            'recipe_parse_args "$@"\n'
+            '  recipe_note "run sudo manually if this fails"\n'
+            '  recipe_die "User \'$RECIPE_ARG_HOSTNAME\' does not exist"')
+        rules = [f["rule"] for f in authoring.draft_report(body)["findings"]]
+        self.assertNotIn("bare-sudo", rules)
+        self.assertNotIn("unquoted-recipe-arg", rules)
+
+    def test_command_rules_still_fire_outside_strings(self):
+        """Blanking strings must not blind the rules to the real thing."""
+        body = self._param_recipe(
+            'recipe_parse_args "$@"\n  sudo tee /etc/x\n  echo $RECIPE_ARG_HOSTNAME')
+        rules = [f["rule"] for f in authoring.draft_report(body)["findings"]]
+        self.assertIn("bare-sudo", rules)
+        self.assertIn("unquoted-recipe-arg", rules)
+
+    # ---- the repair loop --------------------------------------------------
+    #
+    # `complete` is the only thing that talks to a model, so replacing it with
+    # a scripted sequence of replies drives the whole loop without a provider.
+
+    @staticmethod
+    def _reply(text):
+        return json.dumps({"recipe_id": "drafted-note", "recipe": text})
+
+    BROKEN_DRAFT = GOOD_DRAFT.replace('recipe_summary "note set" ;;', 'sudo true; recipe_summary "note set" ;;')
+
+    def test_a_refused_draft_is_corrected_before_the_user_sees_it(self):
+        """Paying a minute of generation to be told "no" was the whole complaint.
+
+        Lint is deterministic and names the fix, so a refused draft is one
+        correction away from a saved one; the loop makes that correction and
+        reports that it did so, rather than showing the refusal as a dead end.
+        """
+        with mock.patch.object(agent, "complete",
+                               side_effect=[self._reply(self.BROKEN_DRAFT), self._reply(GOOD_DRAFT)]) as m:
+            result = agent.draft_and_repair("a note", ROOT, {"recipe_id": "drafted-note"})
+        self.assertTrue(result["lint"]["ok"], result["lint"]["findings"])
+        self.assertEqual(result["recipe"], GOOD_DRAFT)
+        self.assertEqual(len(result["repairs"]), 1)
+        self.assertIn("bare-sudo", [f["rule"] for f in result["repairs"][0]["findings"]])
+        self.assertEqual(m.call_count, 2)
+        # The repair prompt carries lint's actual findings and the recipe.
+        repair_prompt = m.call_args_list[1].args[0]
+        self.assertIn("bare-sudo", repair_prompt)
+        self.assertIn("sudo true", repair_prompt)
+
+    def test_repair_is_bounded_and_then_reports_the_refusal_honestly(self):
+        """A model that cannot act on exact findings twice will not on the third
+        try. Stop, and show what lint said -- never spin, never claim success."""
+        always_broken = [self._reply(self.BROKEN_DRAFT)] * (agent.REPAIR_ROUNDS + 5)
+        with mock.patch.object(agent, "complete", side_effect=always_broken) as m:
+            result = agent.draft_and_repair("a note", ROOT, {"recipe_id": "drafted-note"})
+        self.assertFalse(result["lint"]["ok"])
+        self.assertEqual(len(result["repairs"]), agent.REPAIR_ROUNDS)
+        self.assertEqual(m.call_count, 1 + agent.REPAIR_ROUNDS)
+
+    def test_a_clean_draft_costs_no_extra_model_call(self):
+        with mock.patch.object(agent, "complete", side_effect=[self._reply(GOOD_DRAFT)]) as m:
+            result = agent.draft_and_repair("a note", ROOT, {"recipe_id": "drafted-note"})
+        self.assertTrue(result["lint"]["ok"])
+        self.assertEqual(result["repairs"], [])
+        self.assertEqual(m.call_count, 1)
+
+    def test_warnings_alone_do_not_trigger_a_repair(self):
+        """Only an error blocks saving, so only an error is worth another
+        model call; a warning is shown and left to the user."""
+        warned = GOOD_DRAFT.replace("# @recipe.risk low", "# @recipe.risk low\n# @recipe.undo none")
+        with mock.patch.object(agent, "complete", side_effect=[self._reply(warned)]) as m:
+            result = agent.draft_and_repair("a note", ROOT, {"recipe_id": "drafted-note"})
+        self.assertEqual(m.call_count, 1)
+        self.assertEqual(result["repairs"], [])
 
     def test_bare_sudo_is_refused(self):
         """A recipe from the menu has no terminal, so bare sudo cannot prompt.

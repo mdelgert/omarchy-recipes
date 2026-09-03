@@ -441,15 +441,19 @@ def main(argv: list[str] | None = None) -> int:
 
                 clock = _Timings()
                 with clock.phase("model"):
-                    text = agent_mod.draft(args.request, root, plan, findings=findings,
-                                           decisions=decisions, provider=args.provider, model=args.model)
-                with clock.phase("lint"):
-                    report = authoring.draft_report(text)
+                    # Draft, lint, and correct in a loop. A refused draft is sent
+                    # back with lint's exact findings rather than shown to the
+                    # user as a dead end; the rounds it took are reported.
+                    result = agent_mod.draft_and_repair(
+                        args.request, root, plan, findings=findings, decisions=decisions,
+                        provider=args.provider, model=args.model)
+                text, report, repairs = result["recipe"], result["lint"], result["repairs"]
                 if args.json:
                     emit({"recipe_id": plan.get("recipe_id") or "", "recipe": text, "lint": report,
+                          "repairs": repairs,
                           # `chars` alongside the time because they move together:
                           # generation cost is dominated by how much was written.
-                          "timings": {**clock.to_dict(), "chars": len(text)}})
+                          "timings": {**clock.to_dict(), "chars": len(text), "repairs": len(repairs)}})
                 else:
                     sys.stdout.write(text if text.endswith("\n") else text + "\n")
                     for finding in report["findings"]:

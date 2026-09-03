@@ -106,6 +106,10 @@ Item {
   property var planConflicts: null   // engine's verdict on those claims
   property string draftText: ""      // the generated recipe, shown in full
   property var draftLint: null
+  // Correction rounds the engine ran before this draft passed lint, each with
+  // the findings it fixed. Shown, never hidden: an auditable recipe includes
+  // knowing that its first version was refused and what changed.
+  property var draftRepairs: []
   property string authoringError: ""
   property string savedRecipeId: ""
   // The exchange so far: the user's answers and corrections. Re-sent whole on
@@ -453,6 +457,7 @@ Item {
     planConflicts = null
     draftText = ""
     draftLint = null
+    draftRepairs = []
     authoringError = ""
     savedRecipeId = ""
   }
@@ -475,6 +480,7 @@ Item {
     planConflicts = null
     draftText = ""
     draftLint = null
+    draftRepairs = []
     authoringError = ""
     runPlan(request)
   }
@@ -656,6 +662,7 @@ Item {
       }
       engine.draftText = String(parsed.data.recipe || "")
       engine.draftLint = parsed.data.lint || null
+      engine.draftRepairs = parsed.data.repairs || []
       engine.draftReady()
     }
   }

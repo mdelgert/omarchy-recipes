@@ -464,6 +464,21 @@ FocusScope {
           font.pixelSize: Style.font.bodySmall
         }
 
+        // Said plainly when the engine corrected the draft before showing it.
+        // Auto-repair that the user cannot see would undercut the one promise
+        // this view makes: that what is on screen is what will be saved, and
+        // that they know where it came from.
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          wrapMode: Text.WordWrap
+          visible: text !== ""
+          text: Model.repairSummary(root.engine.draftRepairs)
+          color: Qt.darker(root.foreground, 1.3)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
         Repeater {
           model: root.engine.draftLint ? root.engine.draftLint.findings : []
           delegate: Text {

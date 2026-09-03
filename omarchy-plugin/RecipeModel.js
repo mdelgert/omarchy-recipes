@@ -165,6 +165,21 @@ function focusTargetForView(view) {
   return "card"
 }
 
+// One line for the create view when the engine had to correct a draft before
+// lint accepted it. The project's claim is that a generated recipe is
+// auditable, and that includes knowing its first version was refused and how
+// much changed. Empty when nothing was repaired, so the caller drops the line
+// rather than rendering "0 issues".
+function repairSummary(repairs) {
+  var list = repairs || []
+  if (!list.length) return ""
+  var fixed = 0
+  for (var i = 0; i < list.length; i++) fixed += ((list[i] && list[i].findings) || []).length
+  return "Lint refused the first draft; the agent corrected " + fixed + " issue" + (fixed === 1 ? "" : "s")
+       + " over " + list.length + " round" + (list.length === 1 ? "" : "s")
+       + " — the fixes are in the script below."
+}
+
 // What an unset model is called in the picker. Empty is the shipped state and
 // needs a name a user can actually read.
 function modelDefaultLabel() { return "(provider default)" }

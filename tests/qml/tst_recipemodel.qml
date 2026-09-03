@@ -216,6 +216,27 @@ TestCase {
     copilot: ["auto", "gpt-5.4"]
   })
 
+  function test_repair_summary_counts_fixes_and_rounds() {
+    var text = Model.repairSummary([
+      { round: 1, findings: [{ rule: "bare-sudo" }, { rule: "bare-sudo" }] },
+      { round: 2, findings: [{ rule: "missing-action" }] }
+    ])
+    verify(text.indexOf("3 issues") >= 0, text)
+    verify(text.indexOf("2 rounds") >= 0, text)
+  }
+
+  function test_repair_summary_is_silent_when_nothing_was_repaired() {
+    // No line at all beats "corrected 0 issues".
+    compare(Model.repairSummary([]), "")
+    compare(Model.repairSummary(null), "")
+    compare(Model.repairSummary(undefined), "")
+  }
+
+  function test_repair_summary_uses_singulars() {
+    var text = Model.repairSummary([{ round: 1, findings: [{ rule: "x" }] }])
+    verify(text.indexOf("1 issue over 1 round") >= 0, text)
+  }
+
   function test_focus_target_per_view() {
     // Clicking the card takes the keyboard back after OnDemand focus dropped
     // it; this decides where it lands.

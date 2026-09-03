@@ -84,8 +84,13 @@ DANGEROUS = [
     ("bare-sudo", ERROR,
      re.compile(r"(?<!recipe_)\bsudo\s"),
      "bare sudo cannot prompt when a recipe is run from the menu; use `recipe_sudo <command>`"),
+    # Matched against the line with string contents blanked (STRING_BLIND_RULES),
+    # so an expansion inside "..." is not seen at all and only a genuinely bare
+    # one remains. The previous form looked only at the adjacent characters and
+    # flagged `recipe_die "User '$RECIPE_ARG_USERNAME' does not exist"` -- fully
+    # quoted -- eight times in one generated recipe.
     ("unquoted-recipe-arg", WARNING,
-     re.compile(r"(?<![\"$])\$RECIPE_ARG_[A-Z0-9_]+(?![\"}])"),
+     re.compile(r"\$\{?RECIPE_ARG_[A-Z0-9_]+"),
      "unquoted parameter expansion; quote it so a value with spaces cannot split"),
     # An error: recipe_parse_args uppercases every name, so a lowercase
     # reference is a variable that is never set, and under `set -u` the recipe
@@ -152,6 +157,49 @@ WRITE_RE = re.compile(r"(recipe_atomic_write|>\s*\"?\$\{?target|tee\s|sed\s+-i|>
 BACKUP_RE = re.compile(r"(recipe_backup_file|recipe_mark_absent)")
 
 
+# Rules that are about *commands*, so text inside a string literal must not
+# trip them: `echo "run sudo first"` is prose, and `"…$RECIPE_ARG_X…"` is the
+# quoted form the unquoted-expansion rule exists to recommend. These rules are
+# matched against the line with string contents blanked out. Everything else
+# still sees the full line -- embedded-credential in particular needs the
+# string contents, since that is where the credential is.
+STRING_BLIND_RULES = frozenset({"bare-sudo", "unquoted-recipe-arg"})
+
+
+def _blank_strings(line: str) -> str:
+    """Replace the contents of quoted strings with spaces, keeping the quotes.
+
+    Same-length output, so a match position still maps to the original line.
+    Tracks quoting the same way _strip_comments does, and errs the same way:
+    toward keeping code visible rather than hiding it.
+    """
+    out: list[str] = []
+    quote: str | None = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\" and quote == '"':
+                out.append(" ")
+                i += 1
+                if i < len(line):
+                    out.append(" ")
+                    i += 1
+                continue
+            if ch == quote:
+                quote = None
+                out.append(ch)
+            else:
+                out.append(" ")
+            i += 1
+            continue
+        if ch in "\"'":
+            quote = ch
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _strip_comments(line: str) -> str:
     """Drop a trailing comment so prose about a hazard is not flagged as one.
 
@@ -193,8 +241,10 @@ def lint_text(text: str, path: Path | None = None) -> list[Finding]:
         code = _strip_comments(raw)
         if not code.strip():
             continue
+        blind = _blank_strings(code)
         for rule, severity, pattern, message in DANGEROUS:
-            if pattern.search(code):
+            target = blind if rule in STRING_BLIND_RULES else code
+            if pattern.search(target):
                 findings.append(Finding(rule=rule, severity=severity, message=message, line=number, text=raw.strip()[:160]))
 
     if not text.lstrip().startswith("#!"):
