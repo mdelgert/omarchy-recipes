@@ -457,6 +457,52 @@ class AgentAdapterTests(unittest.TestCase):
             with self.assertRaises(RecipeError, msg=repr(reply)):
                 agent._extract_json(reply)
 
+    def _lint_recipe(self, extra_meta=""):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "r.sh"
+            p.write_text(
+                "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+                "# @recipe.id r\n# @recipe.title T\n# @recipe.description D\n"
+                "# @recipe.category System\n# @recipe.privilege user\n"
+                "# @recipe.undo none\n# @recipe.risk low\n" + extra_meta +
+                "case \"${1:-}\" in\n  check) recipe_state configured x ;;\n"
+                "  apply) : ;;\n  undo) : ;;\nesac\n"
+            )
+            return lint.lint(p)
+
+    def test_missing_icon_only_warns(self):
+        """Every recipe written before icons existed has none, and the engine
+        already falls back, so this must never block them."""
+        report = self._lint_recipe()
+        findings = {f["rule"]: f["severity"] for f in report["findings"]}
+        self.assertEqual(findings.get("no-icon"), "warning")
+        self.assertNotIn("no-icon", [f["rule"] for f in report["findings"] if f["severity"] == "error"])
+
+    def test_declared_icon_silences_the_warning(self):
+        report = self._lint_recipe("# @recipe.icon \\uf085\n")
+        self.assertNotIn("no-icon", [f["rule"] for f in report["findings"]])
+
+    def test_valueless_icon_line_is_an_error(self):
+        """A bare `# @recipe.icon` is invisible to the metadata parser, so
+        reporting it as merely absent would leave the author staring at a line
+        that is right there in the file."""
+        report = self._lint_recipe("# @recipe.icon\n")
+        findings = {f["rule"]: f["severity"] for f in report["findings"]}
+        self.assertEqual(findings.get("empty-icon"), "error")
+        self.assertFalse(report["ok"])
+
+    def test_malformed_icon_is_reported_as_invalid_metadata(self):
+        report = self._lint_recipe("# @recipe.icon nonsense\n")
+        self.assertIn("invalid-metadata", [f["rule"] for f in report["findings"]])
+        self.assertFalse(report["ok"])
+
+    def test_shipped_recipes_still_lint_without_icons(self):
+        """Adding the field must not break the existing library."""
+        for path in sorted((ROOT / "recipes").rglob("*.sh")):
+            with self.subTest(recipe=path.name):
+                report = lint.lint(path)
+                self.assertTrue(report["ok"], f"{path.name}: {report['findings']}")
+
     def test_bare_sudo_is_refused(self):
         """A recipe from the menu has no terminal, so bare sudo cannot prompt.
 

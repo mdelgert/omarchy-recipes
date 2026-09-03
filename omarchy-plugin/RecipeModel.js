@@ -117,14 +117,17 @@ function rowsFor(recipes, query) {
     if (category !== currentCategory) {
       currentCategory = category
       // Every row carries the same keys so the delegate never binds undefined.
-      rows.push({ kind: "header", label: category, detail: "", recipeId: "" })
+      rows.push({ kind: "header", label: category, detail: "", recipeId: "", icon: "" })
     }
     rows.push({
       kind: "recipe",
       label: String(recipe.title || recipe.id),
       detail: String(recipe.description || ""),
       recipeId: String(recipe.id),
-      badge: sourceBadge(recipe)
+      badge: sourceBadge(recipe),
+      // Resolved by the engine, which falls back to the category glyph, so this
+      // is only ever empty for a response too old to carry the field.
+      icon: String(recipe.icon || "")
     })
   }
   return rows

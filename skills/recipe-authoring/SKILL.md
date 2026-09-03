@@ -93,6 +93,27 @@ description of the change, not a transcript.
 
 Prefer concise categories that remain useful as the collection grows: `System`, `Power`, `Applications`, `Development`, `Networking`, `Storage`, `Security`, `Omarchy`, `Desktop`.
 
+Pick an icon. `@recipe.icon` is one Nerd Font glyph drawn beside the title,
+written as a `\uXXXX` escape — never as the literal character, which does not
+survive every editor and shell round-trip:
+
+```bash
+# @recipe.icon \uf085
+```
+
+**Do not guess a codepoint from an icon name.** Several plausible-looking ones
+render as nothing at all in JetBrainsMono Nerd Font (`f5fc` and `f6ff` among
+them), and a blank icon looks like a broken recipe. Either reuse a codepoint
+already in `docs/RECIPE_SPEC.md`, or confirm a new one by rendering it:
+
+```bash
+printf '\uf085 \uf009 \uf5fc\n' | magick -font /usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf \
+  -pointsize 64 label:@- glyphs.png
+```
+
+The field is optional and omitting it is safe — the engine falls back to the
+category's glyph, so nothing renders blank. Omit it rather than guess.
+
 Set privilege to exactly one of `user`, `mixed`, or `root`. It describes what
 the recipe *needs*, not how it gets it — `sudo`, `doas`, and `pkexec` are not
 values:

@@ -1,6 +1,6 @@
 # Task: Recipe icons (Nerd Font glyphs) shown in the UI
 
-Status: Ready
+Status: Done
 Type: feature
 Roadmap link: v0.2 — usable interaction
 
@@ -82,18 +82,18 @@ sensibly with a category-based fallback glyph.
 
 ## Acceptance criteria
 
-- [ ] `@recipe.icon` parses in `src/omarchy_recipes/core.py` and appears in
+- [x] `@recipe.icon` parses in `src/omarchy_recipes/core.py` and appears in
       normalized JSON output
-- [ ] category-based fallback glyph applied when `@recipe.icon` is absent
-- [ ] `docs/RECIPE_SPEC.md` documents the field, its convention, and the
+- [x] category-based fallback glyph applied when `@recipe.icon` is absent
+- [x] `docs/RECIPE_SPEC.md` documents the field, its convention, and the
       category defaults
-- [ ] `omarchy-recipes lint` warns on missing icon, errors on a malformed one
-- [ ] `skills/recipe-authoring/SKILL.md` updated
-- [ ] `omarchy-plugin/Menu.qml` and `omarchy-plugin/RecipeDetail.qml` render
+- [x] `omarchy-recipes lint` warns on missing icon, errors on a malformed one
+- [x] `skills/recipe-authoring/SKILL.md` updated
+- [x] `omarchy-plugin/Menu.qml` and `omarchy-plugin/RecipeDetail.qml` render
       the icon/fallback next to the recipe title
-- [ ] tests added/updated for parsing, fallback, and lint behavior
-- [ ] `make test validate` (or `make check`) passes
-- [ ] `./bin/omarchy-recipes validate` passes on the existing recipe library
+- [x] tests added/updated for parsing, fallback, and lint behavior
+- [x] `make test validate` (or `make check`) passes
+- [x] `./bin/omarchy-recipes validate` passes on the existing recipe library
       (i.e. adding this field doesn't break recipes that predate it)
 
 ## Testing notes
@@ -108,5 +108,66 @@ sensibly with a category-based fallback glyph.
 
 ## Report
 
-<!-- Filled in by the agent when done. Move this file to docs/tasks/done/ and
-set Status to Done when finished. -->
+Implemented. `@recipe.icon` parses, the engine resolves a category fallback so
+nothing renders blank, lint warns on absence and errors on a malformed value,
+and both the browse list and the detail header draw the glyph.
+
+### The verification step was the whole job
+
+`docs/OMARCHY_PLUGIN.md` warns that plausible codepoints render blank, and it is
+right: of the candidates picked by icon name, **`f5fc` ("apps") and `f6ff`
+("network-wired") draw nothing**. Both were in the first draft of the category
+table. They were replaced with `f009` and `f0e8`, confirmed by rendering.
+
+Verifying it was itself error-prone, in a way worth recording. Two intermediate
+render passes reported *every* glyph blank, including ones already known good —
+false negatives caused by literal private-use-area characters being stripped on
+their way into the command, not by the codepoints. The reliable method generates
+the label file from codepoints and checks the bytes landed:
+
+```bash
+python3 -c 'print(f"{0xf085:04x} {chr(0xf085)}")' > labels.txt
+od -c labels.txt | head -2          # confirm 357 202 205 is present
+magick -font .../JetBrainsMonoNerdFont-Regular.ttf -pointsize 40 label:@labels.txt out.png
+```
+
+That is the same fragility the field convention exists for, met three times
+while building it: literal glyphs pasted into the code, the tests, and the docs
+all failed to survive a round-trip — once landing as a NUL byte that made the
+test file unparsable. Everything therefore stores `\uXXXX` escapes, including
+the engine's own table and the docs' copyable examples. Only the rendered
+reference table in `RECIPE_SPEC.md` holds literal glyphs, because there the
+point is to show them.
+
+### Decisions
+
+- **Escape, not literal.** `@recipe.icon \uf085`. A pasted single character is
+  accepted, but the escape is documented, for the reason above.
+- **Fallback in the engine, not the frontend.** `icon` in `--json` is always a
+  single character, so no client carries its own table or decides what a missing
+  icon looks like. `RecipeModel.js` only forwards it.
+- **Malformed is a parse error, not a lint-only warning.** It is refused the same
+  way an invalid `privilege` is; an icon that silently renders as a blank gap is
+  worse than a refusal, because the recipe looks broken and nothing says why.
+- **A valueless `# @recipe.icon` line is its own error.** The metadata regex
+  requires a value, so such a line is invisible to the parser; reporting it as
+  merely "absent" would leave the author staring at a line that is right there.
+
+### Verified
+
+- 134 engine tests + 33 QML tests; `validate` passes on all 9 recipes, none of
+  which declared an icon before this change.
+- Rendered in the running plugin: category fallbacks (grid, monitor, bug,
+  lightbulb) and a declared glyph (`\uf186`, moon) on `omarchy-idle-timeouts`,
+  which is the smoke test the scope allowed for.
+- No new kinds of qmllint warning.
+
+### Unrelated finding
+
+The shell crashed (SIGSEGV) during a restart while this was being verified. It
+is not from this work: the crashing frame is `QQmlComponent::createObject()`
+reached from `/usr/share/omarchy/shell/shell.qml:300`, the shell's own *service*
+plugin loader; this plugin is `menu`-kind and contains no `createObject` call at
+all. `coredumpctl` shows the same crash at 14:23, when this plugin was not
+installed on the machine (first install 17:50). Pre-existing and upstream, not
+reported anywhere yet.

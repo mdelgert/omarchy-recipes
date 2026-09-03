@@ -216,6 +216,29 @@ TestCase {
     copilot: ["auto", "gpt-5.4"]
   })
 
+  function test_rows_carry_the_recipe_icon() {
+    // The engine resolves the glyph (declaring none yields the category's), so
+    // the row just forwards it.
+    var rows = Model.rowsFor([
+      { id: "a", title: "A", category: "Alpha", icon: "" }
+    ], "")
+    compare(rows[1].icon, "")
+  }
+
+  function test_header_rows_carry_an_icon_key_too() {
+    // Every row must expose the same keys or the delegate binds undefined.
+    var rows = Model.rowsFor([{ id: "a", title: "A", category: "Alpha" }], "")
+    compare(rows[0].kind, "header")
+    verify(rows[0].hasOwnProperty("icon"))
+    compare(rows[0].icon, "")
+  }
+
+  function test_row_icon_is_empty_when_the_engine_sends_none() {
+    // An engine too old to carry the field must not render "undefined".
+    var rows = Model.rowsFor([{ id: "a", title: "A", category: "Alpha" }], "")
+    compare(rows[1].icon, "")
+  }
+
   function test_model_options_offer_the_providers_shortlist() {
     var opts = Model.modelOptions(modelsByProvider, "claude", "")
     compare(opts[0], Model.modelDefaultLabel())

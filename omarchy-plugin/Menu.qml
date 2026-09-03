@@ -393,9 +393,25 @@ Item {
             width: parent.width
             height: root.headerHeight
 
+            // The selected recipe's glyph, so the detail view is headed the same
+            // way the recipe was listed. Only the detail view has a recipe to
+            // draw one for; the other views keep their plain heading.
             Text {
+              id: headerIcon
               textFormat: Text.PlainText
               anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.view === "detail" && text !== ""
+              text: recipeEngine.recipe ? String(recipeEngine.recipe.icon || "") : ""
+              color: Qt.darker(root.foreground, 1.25)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.heading
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              anchors.left: headerIcon.visible ? headerIcon.right : parent.left
+              anchors.leftMargin: headerIcon.visible ? Style.spacing.controlGap : 0
               anchors.right: hint.left
               anchors.rightMargin: Style.spacing.md
               anchors.verticalCenter: parent.verticalCenter
@@ -649,9 +665,27 @@ Item {
                       width: parent.width
                       spacing: Style.spacing.controlGap
 
+                      // The recipe's glyph. Always resolved by the engine — a
+                      // recipe that declares none gets its category's — so this
+                      // is only empty against an engine too old to send it,
+                      // where the row simply falls back to title-only.
+                      Text {
+                        id: rowIcon
+                        textFormat: Text.PlainText
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: text !== ""
+                        text: row.modelData && row.modelData.icon ? row.modelData.icon : ""
+                        color: root.cursorActive && root.selectedIndex === row.index
+                          ? root.selectedText : Qt.darker(root.foreground, 1.25)
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.body
+                      }
+
                       Text {
                         textFormat: Text.PlainText
-                        width: Math.min(implicitWidth, parent.width - badge.width - Style.spacing.controlGap)
+                        width: Math.min(implicitWidth, parent.width - badge.width
+                          - (rowIcon.visible ? rowIcon.width + Style.spacing.controlGap : 0)
+                          - Style.spacing.controlGap)
                         text: row.modelData ? row.modelData.label : ""
                         color: root.cursorActive && root.selectedIndex === row.index
                           ? root.selectedText : root.foreground

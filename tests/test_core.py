@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from omarchy_recipes import core
 from omarchy_recipes.core import RecipeError, discover, get_recipe, parse_recipe, validate_values
 
 
@@ -46,6 +47,60 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(values["value"], "performance")
         with self.assertRaises(RecipeError):
             validate_values(r, {"value": "warp"})
+
+    def _recipe_with(self, td, **meta):
+        base = {"id": "r", "title": "T", "description": "D", "category": "System"}
+        base.update(meta)
+        p = Path(td) / "r.sh"
+        p.write_text("#!/bin/bash\n" + "".join(f"# @recipe.{k} {v}\n" for k, v in base.items()))
+        return parse_recipe(p)
+
+    def test_icon_escape_resolves_to_one_glyph(self):
+        """Recipes carry `\\uXXXX`; a literal glyph does not survive round-trips."""
+        with tempfile.TemporaryDirectory() as td:
+            r = self._recipe_with(td, icon=r"")
+        self.assertEqual(r.icon, "")
+        self.assertEqual(len(r.icon), 1)
+
+    def test_icon_falls_back_to_the_category_glyph(self):
+        """No recipe renders blank, and the fallback lives in the engine so no
+        frontend needs its own table."""
+        for category, expected in [("System", ""), ("Desktop", "")]:
+            with self.subTest(category=category), tempfile.TemporaryDirectory() as td:
+                self.assertEqual(self._recipe_with(td, category=category).icon, expected)
+
+    def test_unknown_category_still_gets_a_glyph(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(self._recipe_with(td, category="Wildlife").icon, core.DEFAULT_ICON)
+
+    def test_declared_icon_beats_the_category_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            r = self._recipe_with(td, category="System", icon=r"")
+        self.assertEqual(r.icon, "")
+
+    def test_malformed_icon_is_refused(self):
+        """An icon that cannot resolve is worse than none: it renders as a
+        blank gap and nothing says why."""
+        # A whitespace-only value is deliberately absent from this list: the
+        # metadata regex needs a non-space value, so such a line never reaches
+        # the parser at all. Lint's `empty-icon` rule is what catches it.
+        for bad in ["notaglyph", r"\uZZZZ", "ab", r"\\u12"]:
+            with self.subTest(icon=bad), tempfile.TemporaryDirectory() as td:
+                with self.assertRaises(RecipeError):
+                    self._recipe_with(td, icon=bad)
+
+    def test_every_category_glyph_is_a_single_real_character(self):
+        """A blank or multi-char default would silently break every recipe in
+        that category at once."""
+        for category, glyph in core.CATEGORY_ICONS.items():
+            with self.subTest(category=category):
+                self.assertEqual(len(glyph), 1)
+                self.assertGreater(ord(glyph), 0x20)
+        self.assertEqual(len(core.DEFAULT_ICON), 1)
+
+    def test_icon_reaches_normalized_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertIn("icon", self._recipe_with(td).to_dict())
 
     def test_enum_errors_name_the_accepted_values(self):
         """A bare "invalid privilege 'sudo'" leaves the reader guessing again.

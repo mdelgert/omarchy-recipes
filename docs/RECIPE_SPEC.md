@@ -20,6 +20,7 @@ The metadata grammar is intentionally simple and inspired by comment-driven tool
 # @recipe.undo restore
 # @recipe.risk low
 # @recipe.tags docker,development
+# @recipe.icon \uf085
 ```
 
 Allowed starter values:
@@ -29,6 +30,39 @@ Allowed starter values:
 - risk: `low`, `medium`, `high`
 
 `root` is descriptive only in v0.1. The runner does not automatically sudo the entire recipe.
+
+### Icons
+
+`@recipe.icon` is one Nerd Font glyph drawn beside the title. Write it as a
+`\uXXXX` escape, not as the literal character: a private-use-area character
+does not survive every editor, shell, and diff round-trip, and an icon that
+silently becomes empty renders as a blank gap rather than an error. A pasted
+single character is accepted, but the escape is the documented form.
+
+**Confirm the glyph renders before using it.** Several plausible-looking
+codepoints draw nothing at all in JetBrainsMono Nerd Font — `f5fc` and `f6ff`
+among them. Render it rather than trusting an icon name:
+
+```bash
+printf '\uf085 \uf009 \uf5fc\n' | magick -font /usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf \
+  -pointsize 64 label:@- glyphs.png
+```
+
+The field is optional. A recipe that omits it gets its category's glyph, so no
+recipe ever renders blank. The engine resolves this, so `icon` in `--json`
+output is always a single character and no frontend needs its own table:
+
+| Category | Glyph | Category | Glyph |
+| --- | --- | --- | --- |
+| System | `` | Security | `` |
+| Power | `` | Omarchy | `` |
+| Applications | `` | Desktop | `` |
+| Development | `` | Diagnostics | `` |
+| Networking | `` | Examples | `` |
+| Storage | `` | *(any other)* | `` |
+
+`lint` warns when a recipe declares no icon and errors when it declares one
+that is empty or is not a single glyph.
 
 ## Parameters
 

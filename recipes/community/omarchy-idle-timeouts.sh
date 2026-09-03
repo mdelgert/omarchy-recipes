@@ -10,6 +10,7 @@ set -Eeuo pipefail
 # @recipe.privilege user
 # @recipe.undo restore
 # @recipe.risk low
+# @recipe.icon \uf186
 # @recipe.tags idle,screensaver,lock,timeout,awake,presentation
 # @recipe.generated-with-ai true
 # @recipe.reviewed false
