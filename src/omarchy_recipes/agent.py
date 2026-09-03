@@ -496,6 +496,8 @@ Hard requirements, all enforced by `omarchy-recipes lint`:
 - call `recipe_backup_file` (or `recipe_mark_absent` when the target does not
   exist) before writing any file
 - never use eval, never pipe a download into a shell, never embed a credential
+- elevate with `recipe_sudo <command>`, never bare `sudo`: a recipe run from the
+  menu has no terminal, so `sudo` cannot prompt and fails outright
 - quote every expansion, including "$RECIPE_ARG_*"
 
 Reply with ONE JSON object and nothing else:

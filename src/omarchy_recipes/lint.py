@@ -76,6 +76,14 @@ DANGEROUS = [
     ("sudo-whole-script", WARNING,
      re.compile(r"^\s*sudo\s+(bash|sh)\b"),
      "elevates a whole shell; elevate the single command that needs it"),
+    # An error, not a warning: a recipe run from the menu has its output
+    # captured and no terminal attached, so this does not merely look untidy —
+    # it fails outright with "sudo: a terminal is required to read the
+    # password", which reads as a broken recipe rather than a missing prompt.
+    # Refusing at save time is the only place the author still sees it.
+    ("bare-sudo", ERROR,
+     re.compile(r"(?<!recipe_)\bsudo\s"),
+     "bare sudo cannot prompt when a recipe is run from the menu; use `recipe_sudo <command>`"),
     ("unquoted-recipe-arg", WARNING,
      re.compile(r"(?<![\"$])\$RECIPE_ARG_[A-Z0-9_]+(?![\"}])"),
      "unquoted parameter expansion; quote it so a value with spaces cannot split"),

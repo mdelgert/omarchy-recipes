@@ -29,6 +29,56 @@ recipe_require_runtime() {
   : "${OMARCHY_RECIPES_BACKUP_DIR:?missing backup directory}"
 }
 
+# Run one command with root privileges, asking wherever the user can actually
+# answer.
+#
+#   recipe_sudo pacman -S --needed --noconfirm nano
+#
+# Use this instead of bare `sudo`. A recipe is run by the engine as a
+# subprocess with its output captured, so when it is launched from the menu
+# there is no terminal attached and plain `sudo` cannot prompt — it fails with
+# "sudo: a terminal is required to read the password", which reads to the user
+# as a broken recipe rather than a missing password.
+#
+# The rules below are ordered cheapest-first, so a recipe behaves correctly in
+# all three contexts without knowing which one it is in:
+#
+#   already root      nothing to elevate
+#   passwordless      no prompt at all (NOPASSWD rules, CI, containers)
+#   a terminal        sudo asks there, as it would for any CLI tool
+#   no terminal       pkexec asks through the desktop's polkit agent
+#
+# Only the single command passed here is elevated. Do not wrap the whole
+# recipe.
+recipe_sudo() {
+  (($#)) || recipe_die "recipe_sudo needs a command to run"
+
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    "$@"
+    return
+  fi
+
+  if sudo -n true 2>/dev/null; then
+    sudo -n "$@"
+    return
+  fi
+
+  # `-t 0` alone is not enough: the engine gives a recipe an empty stdin, so a
+  # run from the menu can still look readable. Requiring stderr too matches
+  # where sudo actually writes its prompt.
+  if [[ -t 0 && -t 2 ]]; then
+    sudo "$@"
+    return
+  fi
+
+  if command -v pkexec >/dev/null 2>&1; then
+    pkexec "$@"
+    return
+  fi
+
+  recipe_die "this step needs root, but there is no terminal to ask in and pkexec is not installed"
+}
+
 recipe_path_key() {
   # Hex encoding avoids collisions involving slash/underscore substitutions.
   printf '%s' "$1" | od -An -tx1 | tr -d ' \n'

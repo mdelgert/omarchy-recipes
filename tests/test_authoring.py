@@ -457,6 +457,53 @@ class AgentAdapterTests(unittest.TestCase):
             with self.assertRaises(RecipeError, msg=repr(reply)):
                 agent._extract_json(reply)
 
+    def test_bare_sudo_is_refused(self):
+        """A recipe from the menu has no terminal, so bare sudo cannot prompt.
+
+        It fails with "sudo: a terminal is required to read the password",
+        which reads as a broken recipe. Refusing at save time is the last point
+        the author still sees it.
+        """
+        report = authoring.draft_report(
+            "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+            "# @recipe.id r\n# @recipe.title T\n# @recipe.description D\n"
+            "# @recipe.category System\n# @recipe.privilege root\n"
+            "# @recipe.undo command\n# @recipe.risk low\n"
+            "case \"${1:-}\" in\n"
+            "  check) sudo pacman -Q nano ;;\n"
+            "  apply) : ;;\n  undo) : ;;\nesac\n"
+        )
+        rules = [f["rule"] for f in report["findings"]]
+        self.assertIn("bare-sudo", rules)
+        self.assertFalse(report["ok"])
+
+    def test_recipe_sudo_is_not_mistaken_for_bare_sudo(self):
+        """The helper is the fix, so it must not trip the rule it exists for."""
+        report = authoring.draft_report(
+            "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+            "# @recipe.id r\n# @recipe.title T\n# @recipe.description D\n"
+            "# @recipe.category System\n# @recipe.privilege root\n"
+            "# @recipe.undo command\n# @recipe.risk low\n"
+            "case \"${1:-}\" in\n"
+            "  check) recipe_sudo pacman -Q nano ;;\n"
+            "  apply) : ;;\n  undo) : ;;\nesac\n"
+        )
+        self.assertNotIn("bare-sudo", [f["rule"] for f in report["findings"]])
+
+    def test_authoring_rules_require_the_privilege_helper(self):
+        """The skill is where the model learns the helper exists at all."""
+        rules = (ROOT / "skills" / "recipe-authoring" / "SKILL.md").read_text()
+        self.assertIn("recipe_sudo", rules)
+        source = (ROOT / "src" / "omarchy_recipes" / "agent.py").read_text()
+        start = source.index("Hard requirements")
+        self.assertIn("recipe_sudo", source[start:start + 1500])
+
+    def test_privilege_helper_exists_in_the_library(self):
+        lib = (ROOT / "lib" / "recipe.sh").read_text()
+        self.assertIn("recipe_sudo()", lib)
+        # The no-terminal path is the whole point of the helper.
+        self.assertIn("pkexec", lib)
+
     def test_authoring_rules_state_every_fixed_value_field(self):
         """The skill is the model's only source for these enums.
 
