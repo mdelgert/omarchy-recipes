@@ -35,6 +35,7 @@
 - [ ] Docker setup recipe
 - [ ] Samba recipe
 - [ ] package/service state helper primitives
+- [ ] report-only diagnostic recipes (network info, curl+JSON, system diagnostics) — `docs/tasks/report-only-diagnostic-recipes.md`
 - [ ] distro/package-manager capability helpers
 - [ ] automated VM tests for risky recipes
 
