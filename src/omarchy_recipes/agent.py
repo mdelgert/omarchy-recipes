@@ -117,6 +117,33 @@ PROVIDER_ARGV: dict[str, Callable[[str | None, str], list[str]]] = {
 # is long, contains newlines, and on stdin it can never be parsed as a flag.
 PROMPT_IN_ARGV = frozenset({"copilot"})
 
+# Models each CLI is known to accept, offered as suggestions by the settings UI.
+#
+# This is a convenience shortlist, NOT an authoritative or validated list. No
+# provider CLI can enumerate its own models — none of `claude`, `copilot`, or
+# `codex` has a `models` subcommand or a machine-readable route, and none caches
+# a catalogue on disk — so there is nothing to query and this has to be written
+# down. Written-down lists go stale, which is exactly why nothing validates
+# against it: the model setting stays free text, and a model released after this
+# list was last edited still works. Wrong entries here cost the user a dropdown
+# row, never a rejected setting.
+#
+# Entries are what each CLI's own help or output actually shows:
+#   claude   `--model` takes an alias or a full model name
+#   copilot  `--model` example is a full name; 'auto' is documented
+#   codex    `-m/--model`, whose own config example is a bare model name
+PROVIDER_MODELS: dict[str, list[str]] = {
+    "claude": ["opus", "sonnet", "haiku",
+               "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+    "copilot": ["auto", "claude-sonnet-5", "claude-opus-5", "gpt-5.4"],
+    "codex": ["o3", "gpt-5.4"],
+}
+
+
+def provider_models() -> dict[str, list[str]]:
+    """Suggested models per provider, for a frontend to offer as a shortlist."""
+    return {name: list(PROVIDER_MODELS.get(name, [])) for name in PROVIDER_ARGV}
+
 
 def providers() -> list[Provider]:
     out = []

@@ -353,7 +353,8 @@ def main(argv: list[str] | None = None) -> int:
                 chosen = agent_mod.default_provider()
                 model = agent_mod.resolve_model(chosen)
                 if args.json:
-                    emit({"providers": rows, "default": chosen, "model": model})
+                    emit({"providers": rows, "default": chosen, "model": model,
+                          "models": agent_mod.provider_models()})
                 else:
                     for row in rows:
                         state = "available" if row["available"] else row["reason"]

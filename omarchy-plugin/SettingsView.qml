@@ -167,12 +167,31 @@ FocusScope {
         font.pixelSize: Style.font.body
       }
 
+      // A picker for the common case, and a free-text field beside it because
+      // the list cannot be complete: no provider CLI can enumerate its models,
+      // so the engine's list is written down and will go stale. Locking the
+      // field to it would block a model released tomorrow.
+      Dropdown {
+        id: modelPicker
+        visible: root.chosenProvider !== ""
+        width: Math.min(parent.width, Style.spacing.dropdownWidth)
+        showLabel: false
+        enabled: !root.engine.savingConfig
+        options: Model.modelOptions(root.engine.agentModelOptions,
+                                    root.chosenProvider, root.modelText)
+        value: Model.modelToOption(root.modelText)
+        foreground: root.foreground
+        accent: root.accent
+        fontFamily: root.fontFamily
+        onChanged: function(picked) { root.modelText = Model.modelFromOption(picked) }
+      }
+
       TextField {
         id: modelField
         width: parent.width
         visible: root.chosenProvider !== ""
         enabled: !root.engine.savingConfig
-        placeholderText: "leave empty to let " + root.chosenProvider + " choose"
+        placeholderText: "or type a model the list does not have"
         foreground: root.foreground
         accent: root.accent
         text: root.modelText
@@ -185,7 +204,9 @@ FocusScope {
         width: parent.width
         wrapMode: Text.WordWrap
         visible: root.chosenProvider !== ""
-        text: "Empty means the provider picks its own default. A --model flag, or "
+        text: "The list is a shortlist, not everything the provider accepts — no CLI can "
+            + "report its own models, so anything you type is allowed. "
+            + Model.modelDefaultLabel() + " lets the provider choose. A --model flag, or "
             + "OMARCHY_RECIPES_MODEL, still wins for a single call."
         color: Qt.darker(root.foreground, 1.5)
         font.family: root.fontFamily

@@ -126,6 +126,10 @@ Item {
   // Model configured per provider, so switching provider in settings shows that
   // provider's own setting rather than the previous one's text.
   property var agentModels: ({})
+  // Models each provider is known to accept, keyed by provider. A shortlist the
+  // engine offers as suggestions, not a validated set — the model field stays
+  // free text so a newer model still works.
+  property var agentModelOptions: ({})
   property bool savingConfig: false
   property string configError: ""
 
@@ -499,6 +503,7 @@ Item {
         engine.agentProviders = parsed.data.providers || []
         engine.agentProvider = String(parsed.data.default || "")
         engine.agentModel = String(parsed.data.model || "")
+        engine.agentModelOptions = parsed.data.models || ({})
       }
       engine.noteConfigRefresh()
     }
